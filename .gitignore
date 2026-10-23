@@ -3,3 +3,25 @@ data/raw/*
 !data/raw/.gitkeep
 .venv/
 __pycache__/
+
+# 秘密情報・環境
+.env
+*.env
+.streamlit/secrets.toml
+.venv/
+venv/
+
+# Python / Jupyter / OS の自動生成物
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# 外部サイトから集めた原資料（再配布条件が未確認のため上げない）
+# docs は team_rules.md だけ共有する
+docs/*
+!docs/team_rules.md
+
+# 元データ（ライセンス未確認）。加工後の data/gaishoku_candidates.csv などは上げる
+data/japan_restaurant_menu_full*.csv
