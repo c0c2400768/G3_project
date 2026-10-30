@@ -5,7 +5,9 @@
 """
 
 # 朝・昼・夜の配分比（合計1）。岩間が決める。決めた値と根拠は docs/ に記録する。
-SLOT_RATIO = {"morning": None, "lunch": None, "dinner": None}
+# 2026-10-30 決定：朝3:昼3:夕4。「この比率が正しい」という公的資料は確認できていない（仮定）。
+# 25/35/40・30/35/35・33/33/33 でも最小コストの差は約20円以内（実データで確認）。
+SLOT_RATIO = {"morning": 0.30, "lunch": 0.30, "dinner": 0.40}
 
 # 食事の kcal が「1日の目標 kcal × 配分比」の ±SLOT_TOL に入る枠を、その食事の候補にする。
 SLOT_TOL = 0.30
@@ -17,7 +19,9 @@ CONSTRAINT_NUTRIENTS = ["kcal", "protein_g", "fat_g", "carb_g"]
 AUX_NUTRIENTS = ["fiber_g", "salt_g", "calcium_mg", "iron_mg", "vitamin_c_mg"]
 
 # 自炊のロス率（感度分析で動かす範囲も別に持つ）。未決。
-LOSS_RATE = None
+# 2026-10-30 決定：基準は10%の仮置き。公的な根拠つきの値は確認できていない（家庭系食品ロス量は
+# 環境省推計で年224万t、だが購入量に対する割合は資料にない）。0〜40% は LOSS_GRID で感度分析する。
+LOSS_RATE = 0.10
 
 # --- 感度分析（src/sensitivity.ipynb）で動かす範囲。いずれも仮案で根拠なし。決まったら書き換える ---
 # ロス率（自炊の食材ロス）を動かす値（0.1 = 10%）
@@ -59,3 +63,16 @@ PORTION_PREP_COEF = 0.3
 
 # --- 調理時間の感度分析：自炊の prep_min にかける倍率（仮案で根拠なし） ---
 COOK_FACTOR_GRID = [0.8, 1.0, 1.2, 1.5]
+
+# --- 食材データの換算と仮定（build_meals.py が使う。2026-10-30 追加） ---
+# 個・mL をグラムにする換算（prices.csv の unit と recipes.csv の量を g にそろえる）
+EGG_G_PER_PIECE = 60   # 鶏卵 1個 = 60g（殻つきの目安。仮置き）
+ML_G_PER_ML = 1.0      # 1mL = 1g（牛乳・しょう油。仮置き）
+
+# prices.csv の unit が空欄の品目に、仮にあてる「価格がカバーする量（g）」。{item_id: g}
+#   1652 カレールウ：e-Statの単位が「1箱・12皿分」で重さ不明。市販の1箱を200gと仮置き（根拠なし。要確認）
+UNIT_G_ASSUMED = {"1652": 200}
+
+# e-Statに品目がない食材の、1gあたりの仮の価格（円/g）。{recipes.csv の ingredient: 円/g}
+#   にんにく：使用量は5g/回で影響は数円。値は根拠なしの仮置き（要確認）
+PRICE_ASSUMED_YEN_PER_G = {"にんにく りん茎 生": 1.0}
