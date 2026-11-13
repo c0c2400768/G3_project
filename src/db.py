@@ -163,3 +163,81 @@ def login(nickname: str, pin: str) -> tuple[bool, str]:
         return False, f"{wrong}（あと{MAX_FAILS - fails}回でロック）"
     except Exception:
         return False, UNAVAILABLE_MSG
+
+
+# ---------- 自作レシピ（user_recipes テーブル。担当：トップ／自作レシピ） ----------
+MAX_RECIPES_PER_USER = 20  # 1人あたりの登録上限（容量対策。仮案）
+
+
+def add_recipe(nickname: str, fields: dict) -> tuple[bool, str]:
+    """自作レシピを登録する。fields は user_recipes の列名のdict（id・nickname・created_at は不要）。"""
+    if not is_available():
+        return False, UNAVAILABLE_MSG
+    try:
+        table = get_client().table("user_recipes")
+        count = table.select("id", count="exact").eq("nickname", nickname).execute().count
+        if count is not None and count >= MAX_RECIPES_PER_USER:
+            return False, f"登録できるレシピは{MAX_RECIPES_PER_USER}件までです。不要なものを削除してください。"
+        table.insert({**fields, "nickname": nickname}).execute()
+    except Exception:
+        return False, UNAVAILABLE_MSG
+    return True, "登録しました。"
+
+
+def list_my_recipes(nickname: str) -> list[dict] | None:
+    """自分のレシピ一覧（新しい順）。接続できないときは None。"""
+    if not is_available():
+        return None
+    try:
+        res = (get_client().table("user_recipes").select("*").eq("nickname", nickname)
+               .order("created_at", desc=True).execute())
+        return res.data
+    except Exception:
+        return None
+
+
+def set_recipe_public(nickname: str, recipe_id: int, is_public: bool) -> bool:
+    """公開／非公開の切り替え。自分のレシピ（nickname 一致）だけが対象。"""
+    if not is_available():
+        return False
+    try:
+        get_client().table("user_recipes").update({"is_public": is_public}) \
+            .eq("id", recipe_id).eq("nickname", nickname).execute()
+        return True
+    except Exception:
+        return False
+
+
+def delete_recipe(nickname: str, recipe_id: int) -> bool:
+    """自分のレシピを削除する。"""
+    if not is_available():
+        return False
+    try:
+        get_client().table("user_recipes").delete().eq("id", recipe_id).eq("nickname", nickname).execute()
+        return True
+    except Exception:
+        return False
+
+
+def load_candidate_recipes(nickname: str | None, use_own: bool, use_public: bool) -> list[dict]:
+    """提案・分析の候補に加えるレシピ（user_recipes の行のリスト）。
+
+    use_own：ログイン中の自分のレシピ（公開・非公開とも）
+    use_public：他の人の公開レシピ（自分の分は use_own 側で取るので除く）
+    接続できないときは空リスト（候補なしで計算を続ける）。
+    """
+    if not is_available():
+        return []
+    rows: list[dict] = []
+    try:
+        table = get_client().table("user_recipes")
+        if use_own and nickname:
+            rows += table.select("*").eq("nickname", nickname).execute().data
+        if use_public:
+            q = table.select("*").eq("is_public", True)
+            if nickname:
+                q = q.neq("nickname", nickname)
+            rows += q.execute().data
+    except Exception:
+        return []
+    return rows
