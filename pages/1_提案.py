@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-st.set_page_config(page_title="一日の提案", page_icon="🍚")
+st.set_page_config(page_title="一日の提案", page_icon="🍚", layout="wide")
 
 from src import config, db, optimize as opt, ui, user_recipes as ur  # noqa: E402
 from src.data_loader import load_meals, load_recipes  # noqa: E402

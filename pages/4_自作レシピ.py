@@ -1,7 +1,7 @@
 """自作レシピ：登録・一覧・公開切り替え・削除。栄養は手入力、またはGeminiで概算して確認・修正する。"""
 import streamlit as st
 
-st.set_page_config(page_title="自作レシピ", page_icon="🍳")
+st.set_page_config(page_title="自作レシピ", page_icon="🍳", layout="wide")
 
 from src import db, gemini, ui, user_recipes as ur  # noqa: E402
 

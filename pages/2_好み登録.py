@@ -7,7 +7,7 @@
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="好き度の登録", page_icon="🍚")
+st.set_page_config(page_title="好き度の登録", page_icon="🍚", layout="wide")
 
 from src import db, ui  # noqa: E402
 from src.data_loader import load_meals  # noqa: E402

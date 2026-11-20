@@ -33,6 +33,9 @@ _ICONS = {
                '<line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/>'
                '<line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/>'
                '<line x1="16" x2="16" y1="18" y2="22"/>',
+    "home": '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    "chart": '<line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/>',
+    "book": '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
 }
 
 
@@ -44,7 +47,7 @@ def _mask_uri(inner: str) -> str:
 
 _CSS = """
 <style>
-.block-container { max-width: 780px; padding-top: 4.5rem; }  /* 固定ヘッダー（Deploy の帯）に隠れない余白 */
+.block-container { max-width: none; padding: 4.5rem clamp(1rem, 3vw, 3.5rem) 3rem; }  /* 画面幅に追従。上は固定ヘッダー（Deploy の帯）に隠れない余白 */
 
 /* アイコン（マスク）。色は周りの文字色に従う */
 .ui-i { display: inline-block; width: 1.5rem; height: 1.5rem; background-color: currentColor;
@@ -108,12 +111,34 @@ __ICON_RULES__
 .ui-pv-row b { font-size: 1.05rem; }
 .ui-pv-note { margin: .8rem 0 0; padding-top: .7rem; border-top: 1px solid rgba(128, 128, 128, .25);
               font-size: .78rem; line-height: 1.6; opacity: .75; }
-.ui-feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin-top: .4rem; }
+.ui-feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin: .4rem 0 1.2rem; }
 .ui-feat { display: flex; gap: .7rem; align-items: center; border: 1px solid rgba(128, 128, 128, .25);
            border-radius: 12px; padding: .7rem .9rem; }
 .ui-feat .ui-i { width: 1.4rem; height: 1.4rem; color: __ACCENT__; flex: 0 0 auto; }
 .ui-feat b { display: block; font-size: .9rem; }
 .ui-feat span.s { font-size: .75rem; opacity: .7; }
+/* サイドバー：アイコンを上、ラベルを下に並べたナビ（上から ホーム／提案／好み登録／分析／自作レシピ） */
+@media (min-width: 768px) {
+  [data-testid="stSidebar"][aria-expanded="true"] { width: 92px !important; min-width: 92px !important; }
+}
+[data-testid="stSidebarNavItems"] { padding: .4rem .25rem; gap: .3rem; }
+[data-testid="stSidebarNavLink"] { display: flex !important; flex-direction: column; align-items: center;
+    justify-content: center; gap: .3rem; padding: .65rem .1rem !important; border-radius: 16px; text-align: center;
+    text-decoration: none; transition: background .15s; }
+[data-testid="stSidebarNavLink"]:hover { background: rgba(242, 103, 79, .10); }
+[data-testid="stSidebarNavLink"]::before { content: ""; display: block; width: 1.7rem; height: 1.7rem;
+    background-color: currentColor; opacity: .75;
+    -webkit-mask: var(--nav-m) center / contain no-repeat; mask: var(--nav-m) center / contain no-repeat; }
+[data-testid="stSidebarNavLink"] span { font-size: .74rem !important; line-height: 1.3; white-space: normal;
+    word-break: keep-all; overflow-wrap: anywhere; }
+[data-testid="stSidebarNavLink"][aria-current="page"] { background: rgba(242, 103, 79, .18); color: __ACCENT__; }
+[data-testid="stSidebarNavLink"][aria-current="page"]::before { opacity: 1; }
+[data-testid="stSidebarNavLink"][aria-current="page"] span { font-weight: 800; color: __ACCENT__; }
+/* 1つ目は app.py（表示名が "app"）なので「ホーム」に差し替える */
+[data-testid="stSidebarNavItems"] > :nth-child(1) [data-testid="stSidebarNavLink"] span { font-size: 0 !important; }
+[data-testid="stSidebarNavItems"] > :nth-child(1) [data-testid="stSidebarNavLink"]::after { content: "ホーム";
+    font-size: .74rem; line-height: 1.3; font-weight: inherit; }
+__NAV_ICON_RULES__
 </style>
 """
 
@@ -130,7 +155,12 @@ def _image_css() -> str:
 @st.cache_data
 def _theme_css() -> str:
     rules = "\n".join(f'.ui-i-{name} {{ --m: url("{_mask_uri(inner)}"); }}' for name, inner in _ICONS.items())
-    return _CSS.replace("__ICON_RULES__", rules).replace("__ACCENT__", ACCENT) + _image_css()
+    nav = ["home", "utensils", "heart", "chart", "book"]  # サイドバーの並び順に対応
+    nav_rules = "\n".join(
+        f'[data-testid="stSidebarNavItems"] > :nth-child({i}) [data-testid="stSidebarNavLink"] '
+        f'{{ --nav-m: url("{_mask_uri(_ICONS[name])}"); }}' for i, name in enumerate(nav, 1))
+    return (_CSS.replace("__ICON_RULES__", rules).replace("__NAV_ICON_RULES__", nav_rules)
+            .replace("__ACCENT__", ACCENT) + _image_css())
 
 
 def apply_theme() -> None:

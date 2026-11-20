@@ -7,7 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
-st.set_page_config(page_title="学生の食事判断支援アプリ", page_icon="🍚", layout="centered")
+st.set_page_config(page_title="学生の食事判断支援アプリ", page_icon="🍚", layout="wide")
 
 from src import config, db, ui  # noqa: E402  （set_page_config は最初に呼ぶ必要がある）
 from src.data_loader import load_meals  # noqa: E402
