@@ -19,11 +19,13 @@ UNIT = {"kcal": "kcal", "protein_g": "g", "fat_g": "g", "carb_g": "g", "fiber_g"
 STATUS_COLOR = {"充足": "#1baf7a", "不足": "#eb6834", "超過": "#e34948"}
 
 ui.apply_theme()
-ui.page_header("一日の提案", "トップで確定した条件から、費用が最小の1日の食事を提案します。")
+ui.larger_text()
+SUBTITLE = "トップで確定した条件から、費用が最小の1日の食事を提案します。"
 
 cond = st.session_state.get("conditions")
 if not cond:
     # 例外対応：条件を入力せずにこのページを開いた場合
+    ui.page_header("一日の提案", SUBTITLE)
     st.warning("条件が入力されていません。トップで条件を入力して確定してください。")
     st.page_link("app.py", label="トップへ戻る")
     st.stop()
@@ -32,10 +34,12 @@ kcal_target = config.KCAL_TABLE[cond["sex"]][cond["activity"]]
 target = opt.build_nutrition_target(kcal_target, config.ENERGY_RATIO, config.KCAL_PER_G, config.KCAL_TOL)
 SEX_JA = {"male": "男性", "female": "女性"}
 ACT_JA = {"low": "低い", "normal": "ふつう", "high": "高い"}
-st.caption(
-    f"{SEX_JA[cond['sex']]}・活動量{ACT_JA[cond['activity']]}（目標 {kcal_target:,} kcal/日）／"
-    f"予算 {cond['budget']:,}円／準備時間の上限 {cond['max_prep']}分"
-)
+ui.hero_stats("一日の提案", SUBTITLE, [
+    ("あなた", f"{SEX_JA[cond['sex']]}・活動量{ACT_JA[cond['activity']]}", False),
+    ("目標エネルギー", f"{kcal_target:,} kcal", True),
+    ("予算", f"{cond['budget']:,}円", False),
+    ("準備時間の上限", f"{cond['max_prep']}分", False),
+])
 
 # ---------- 候補（自作レシピ・好き度）の読み込み ----------
 user = cond.get("nickname")
@@ -161,7 +165,7 @@ def show_savings(plan: dict) -> None:
         return
     diff = eo - plan["total_cost"]
     word = "安い" if diff >= 0 else "高い"
-    st.markdown("**外食だけの場合との比較**")
+    ui.section("外食だけの場合との比較", "wallet")
     c1, c2, c3 = st.columns(3)
     c1.metric("外食のみ（1日）", f"{eo:,.0f}円")
     c2.metric(f"1週間（7日）", f"{abs(diff) * 7:,.0f}円", f"{word}", delta_color="normal" if diff >= 0 else "inverse")
@@ -181,12 +185,12 @@ def show_plan(plan: dict) -> None:
     c2.metric("総準備時間", f"{totals['prep_min']:.0f}分")
     c3.metric("総エネルギー", f"{totals['kcal']:,.0f} kcal", help=f"目標 {kcal_target:,} kcal")
 
-    table = pd.DataFrame({
-        "枠": sel["slot"].map(ur.SLOT_LABELS), "区分": sel["type"], "メニュー": sel["name"],
-        "費用(円)": sel["cost_yen"].round(0).astype(int), "準備(分)": sel["prep_min"].round(0).astype(int),
-        "kcal": sel["kcal"].round(0).astype(int),
-    })
-    st.dataframe(table, hide_index=True)
+    ui.section("この案の献立", "utensils")
+    ui.meal_cards([
+        {"slot": ui_slot(r["slot"]), "type": r["type"], "name": r["name"],
+         "cost": r["cost_yen"], "prep": r["prep_min"], "kcal": r["kcal"]}
+        for _, r in sel.iterrows()
+    ])
     show_savings(plan)
     show_ingredients(sel)
 
@@ -208,10 +212,12 @@ def show_plan(plan: dict) -> None:
         hoverinfo="skip",
     ))
     fig.add_vline(x=100, line_dash="dash", line_color="#52514e")
-    fig.update_layout(template="simple_white", height=60 + 48 * len(shown), showlegend=False,
-                      xaxis_title="基準に対する割合（%）", margin=dict(l=10, r=60, t=10, b=40))
+    fig.update_traces(marker_line_width=0, textfont_size=14)
+    fig.update_layout(template="simple_white", height=70 + 52 * len(shown), showlegend=False, bargap=0.35,
+                      font=dict(size=14), xaxis_title="基準に対する割合（%）", margin=dict(l=10, r=80, t=10, b=40),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     fig.update_yaxes(autorange="reversed")
-    st.markdown("**栄養の充足度**")
+    ui.section("栄養の充足度", "heart")
     st.plotly_chart(fig)
     st.caption("基準は、下限（下限がなければ上限）に対する割合です。破線が100%です。")
 
@@ -228,8 +234,12 @@ def show_plan(plan: dict) -> None:
 
 
 plans = res["plans"]
-st.success(f"最安の組み合わせは **{plans[0]['total_cost']:,.0f}円** です。" if cond.get("lam", 0) == 0
-           else f"条件を満たす組み合わせを、好みを反映した順に {len(plans)} 案出しました。")
+if cond.get("lam", 0) == 0:
+    ui.result_banner("最安の組み合わせ", f"{plans[0]['total_cost']:,.0f}", "円 / 日",
+                     f"条件を満たす案を安い順に {len(plans)} 案出しました。タブで切り替えて比べられます。")
+else:
+    ui.result_banner("好みを反映した1位の案", f"{plans[0]['total_cost']:,.0f}", "円 / 日",
+                     f"条件を満たす組み合わせを、好みを反映した順に {len(plans)} 案出しました。")
 tabs = st.tabs([f"案{n + 1}（{p['total_cost']:,.0f}円）" for n, p in enumerate(plans)])
 for tab, plan in zip(tabs, plans):
     with tab:
