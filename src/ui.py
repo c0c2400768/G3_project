@@ -36,6 +36,9 @@ _ICONS = {
     "home": '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
     "chart": '<line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/>',
     "book": '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+    "wallet": '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/>'
+              '<path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    "check": '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
 }
 
 
@@ -117,6 +120,49 @@ __ICON_RULES__
 .ui-feat .ui-i { width: 1.4rem; height: 1.4rem; color: __ACCENT__; flex: 0 0 auto; }
 .ui-feat b { display: block; font-size: .9rem; }
 .ui-feat span.s { font-size: .75rem; opacity: .7; }
+
+/* 結果のバナー（最安の金額を大きく見せる） */
+.ui-result { display: flex; align-items: center; gap: 1rem; margin: .4rem 0 1rem; padding: 1.1rem 1.3rem;
+             border-radius: 16px; border: 1px solid rgba(242, 103, 79, .35);
+             background: linear-gradient(120deg, rgba(242, 103, 79, .16), rgba(242, 103, 79, .04)); }
+.ui-result .ui-i { width: 2.2rem; height: 2.2rem; color: __ACCENT__; flex: 0 0 auto; }
+.ui-result-l { font-size: 1rem; opacity: .8; }
+.ui-result-v { font-size: 2.2rem; font-weight: 800; line-height: 1.2; color: __ACCENT__; }
+.ui-result-v span { font-size: 1.1rem; margin-left: .2rem; }
+.ui-result-s { font-size: .95rem; opacity: .8; }
+
+/* 朝・昼・夜の献立カード */
+.ui-meals { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .7rem; margin: .6rem 0 1rem; }
+.ui-meal { border: 1px solid rgba(128, 128, 128, .25); border-radius: 14px; padding: .9rem 1rem;
+           background: rgba(128, 128, 128, .06); display: flex; flex-direction: column; gap: .45rem; }
+.ui-meal-top { display: flex; justify-content: space-between; align-items: center; }
+.ui-meal-slot { font-size: 1.05rem; font-weight: 800; color: __ACCENT__; }
+.ui-chip { font-size: .8rem; font-weight: 700; padding: .15rem .6rem; border-radius: 999px; }
+.ui-chip-cook { background: rgba(27, 175, 122, .16); color: #1baf7a; }
+.ui-chip-out { background: rgba(70, 130, 230, .16); color: #4b8ef0; }
+.ui-meal-name { font-size: 1.15rem; font-weight: 700; line-height: 1.4; }
+.ui-meal-meta { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .95rem; opacity: .8; }
+.ui-meal-meta b { font-weight: 700; }
+</style>
+"""
+
+# 提案ページなど、文字を少し大きくしたいページで使う CSS
+_LARGE_CSS = """
+<style>
+.block-container [data-testid="stMarkdownContainer"] p,
+.block-container [data-testid="stMarkdownContainer"] li { font-size: 1.08rem; }
+.block-container [data-testid="stCaptionContainer"] p { font-size: .95rem; }
+[data-testid="stAlertContainer"] p { font-size: 1.05rem; }
+[data-testid="stProgress"] p { font-size: 1.05rem; font-weight: 600; }
+[data-testid="stExpander"] summary p { font-size: 1.05rem; font-weight: 600; }
+[data-baseweb="tab"] p { font-size: 1.08rem; font-weight: 700; }
+[data-testid="stMetric"] { background: rgba(128, 128, 128, .08); border: 1px solid rgba(128, 128, 128, .2);
+                           border-radius: 14px; padding: .8rem 1rem; }
+[data-testid="stMetricLabel"] p { font-size: 1rem; }
+[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 800; }
+.ui-stat-l { font-size: .85rem; }
+.ui-stat-v { font-size: 1.35rem; }
+.ui-section { font-size: 1.35rem; margin-top: 1.2rem; }
 /* サイドバー：アイコンを上、ラベルを下に並べたナビ（上から ホーム／提案／好み登録／分析／自作レシピ） */
 @media (min-width: 768px) {
   [data-testid="stSidebar"][aria-expanded="true"] { width: 92px !important; min-width: 92px !important; }
@@ -168,6 +214,11 @@ def apply_theme() -> None:
     st.markdown(_theme_css(), unsafe_allow_html=True)
 
 
+def larger_text() -> None:
+    """そのページの文字を少し大きくし、st.metric をカード風にする。apply_theme の後に呼ぶ。"""
+    st.markdown(_LARGE_CSS, unsafe_allow_html=True)
+
+
 def hero(title: str, subtitle: str, note: str | None = None, image: bool = True, compact: bool = False) -> None:
     """ページ上部のバナー。HTML は1行にまとめる（空行や字下げがあると、Markdown が崩す）。"""
     note_html = f'<p class="ui-hero-note">ⓘ {html.escape(note)}</p>' if note else ""
@@ -189,7 +240,7 @@ def page_header(title: str, subtitle: str) -> None:
 
 
 def section(title: str, icon: str) -> None:
-    """カードの見出し。icon は "user" か "sliders"。"""
+    """カードの見出し。icon は _ICONS のキー（"user", "sliders", "wallet" など）。"""
     st.markdown(
         f'<div class="ui-section"><span class="ui-ico"><span class="ui-i ui-i-{icon}"></span></span>'
         f"<span>{html.escape(title)}</span></div>",
@@ -235,3 +286,27 @@ def feature_cards(items: list[tuple[str, str, str]]) -> None:
         for icon, t, sub in items
     )
     st.markdown(f'<div class="ui-feats">{cards}</div>', unsafe_allow_html=True)
+
+
+def result_banner(label: str, value: str, unit: str, sub: str) -> None:
+    """結果の金額を大きく見せるバナー。"""
+    st.markdown(
+        f'<div class="ui-result"><span class="ui-i ui-i-check"></span><div>'
+        f'<div class="ui-result-l">{html.escape(label)}</div>'
+        f'<div class="ui-result-v">{html.escape(value)}<span>{html.escape(unit)}</span></div>'
+        f'<div class="ui-result-s">{html.escape(sub)}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def meal_cards(meals: list[dict]) -> None:
+    """朝・昼・夜の献立カード。meals は slot, type, name, cost, prep, kcal を持つ dict のリスト。"""
+    cards = "".join(
+        f'<div class="ui-meal"><div class="ui-meal-top"><span class="ui-meal-slot">{html.escape(m["slot"])}</span>'
+        f'<span class="ui-chip {"ui-chip-cook" if m["type"] == "自炊" else "ui-chip-out"}">{html.escape(m["type"])}</span></div>'
+        f'<div class="ui-meal-name">{html.escape(m["name"])}</div>'
+        f'<div class="ui-meal-meta"><span><b>{m["cost"]:,.0f}</b>円</span><span><b>{m["prep"]:.0f}</b>分</span>'
+        f'<span><b>{m["kcal"]:,.0f}</b> kcal</span></div></div>'
+        for m in meals
+    )
+    st.markdown(f'<div class="ui-meals">{cards}</div>', unsafe_allow_html=True)
