@@ -263,7 +263,7 @@ def load_candidate_recipes(nickname: str | None, use_own: bool, use_public: bool
     return rows
 
 
-# ---------- 好き度（likes テーブル。書き込みは好み登録ページの担当。ここは読み込みだけ） ----------
+# ---------- 好き度（likes テーブル。書き込みは pages/2_好み登録.py、読み込みは提案ページ） ----------
 def get_likes(nickname: str | None) -> dict[str, int]:
     """ログイン中の人の好き度 {recipe_id: 1〜5}。未ログイン・接続失敗・テーブル未作成のときは空。"""
     if not nickname or not is_available():
@@ -273,3 +273,27 @@ def get_likes(nickname: str | None) -> dict[str, int]:
         return {r["recipe_id"]: int(r["score"]) for r in rows}
     except Exception:
         return {}
+
+
+MAX_LIKES_PER_SAVE = 100  # 1回に保存できる件数の上限（誤操作・容量対策。仮案）
+
+
+def save_likes(nickname: str, scores: dict[str, int]) -> tuple[bool, str]:
+    """好き度を保存する（同じ recipe_id は上書き）。scores は {recipe_id: 1〜5}。"""
+    if not nickname:
+        return False, "ログインが必要です。"
+    if not scores or len(scores) > MAX_LIKES_PER_SAVE:
+        return False, "保存する好き度の件数が正しくありません。"
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for rid, score in scores.items():
+        if not isinstance(rid, str) or not 1 <= len(rid) <= 50 or score not in (1, 2, 3, 4, 5):
+            return False, "好き度の値が正しくありません。"
+        rows.append({"nickname": nickname, "recipe_id": rid, "score": int(score), "updated_at": now})
+    if not is_available():
+        return False, UNAVAILABLE_MSG
+    try:
+        get_client().table("likes").upsert(rows, on_conflict="nickname,recipe_id").execute()
+    except Exception:
+        return False, UNAVAILABLE_MSG
+    return True, "保存しました。"
