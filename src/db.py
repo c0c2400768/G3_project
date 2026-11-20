@@ -63,6 +63,26 @@ def is_available() -> bool:
     return get_client() is not None and _pepper() is not None
 
 
+def unavailable_reason() -> str | None:
+    """is_available() が False のときの原因を短い日本語で返す（秘密の値は含めない）。使えるなら None。"""
+    if create_client is None:
+        return ("supabase ライブラリを読み込めません。今動いている Python にインストールされていない可能性があります。"
+                "仮想環境（.venv）を有効にして、`pip install -r requirements.txt` のあと `streamlit run app.py` を実行してください。")
+    try:
+        sb = st.secrets["supabase"]
+        url, key = sb["url"], sb["key"]
+    except Exception:
+        return ("Secrets の [supabase] url / key を読み込めません。secrets.toml は、streamlit run を実行した"
+                "フォルダの .streamlit/ から読まれます。G3_project フォルダで実行しているか確認してください。")
+    try:
+        _make_client(url, key)
+    except Exception as e:  # メッセージにキーが入る可能性があるので、例外の種類だけを示す
+        return f"Supabase のクライアントを作れませんでした（{type(e).__name__}）。url と key の値を確認してください。"
+    if _pepper() is None:
+        return "Secrets の [auth] pepper を読み込めません。"
+    return None
+
+
 # ---------- 入力の検証 ----------
 def normalize_nickname(raw: str | None) -> str:
     return (raw or "").strip()
@@ -241,3 +261,15 @@ def load_candidate_recipes(nickname: str | None, use_own: bool, use_public: bool
     except Exception:
         return []
     return rows
+
+
+# ---------- 好き度（likes テーブル。書き込みは好み登録ページの担当。ここは読み込みだけ） ----------
+def get_likes(nickname: str | None) -> dict[str, int]:
+    """ログイン中の人の好き度 {recipe_id: 1〜5}。未ログイン・接続失敗・テーブル未作成のときは空。"""
+    if not nickname or not is_available():
+        return {}
+    try:
+        rows = get_client().table("likes").select("recipe_id,score").eq("nickname", nickname).execute().data
+        return {r["recipe_id"]: int(r["score"]) for r in rows}
+    except Exception:
+        return {}

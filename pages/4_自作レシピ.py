@@ -3,9 +3,10 @@ import streamlit as st
 
 st.set_page_config(page_title="自作レシピ", page_icon="🍳")
 
-from src import db, gemini, user_recipes as ur  # noqa: E402
+from src import db, gemini, ui, user_recipes as ur  # noqa: E402
 
-st.title("自作レシピ")
+ui.apply_theme()
+ui.page_header("自作レシピ", "自分のレシピを登録して、提案の候補に加えられます。")
 
 user = st.session_state.get("user")
 if not user:
@@ -37,6 +38,9 @@ if gemini.is_available():
                "製品改善に使われる可能性があります。個人情報は入れないでください。")
 else:
     st.caption("AI概算は現在使えません。栄養は手入力してください。")
+_diag = gemini.last_log_text()
+if _diag:
+    st.caption(f"直前のAI概算：{_diag}")
 if st.session_state.pop("recipe_registered", False):
     st.success("登録しました。")
 
@@ -144,7 +148,7 @@ table = [{
     "P(g)": r["protein_g"], "F(g)": r["fat_g"], "C(g)": r["carb_g"],
     "食べる時間帯": "・".join(ur.SLOT_LABELS[s] for s in ur.SLOTS if s not in (r["exclude_slots"] or "").split(",")),
 } for r in mine]
-st.dataframe(table, hide_index=True, use_container_width=True)
+st.dataframe(table, hide_index=True)
 
 by_id = {r["id"]: r for r in mine}
 chosen = st.selectbox("操作するレシピ", list(by_id), format_func=lambda i: by_id[i]["name"])
@@ -168,9 +172,19 @@ else:
         else:
             st.error("更新できませんでした。")
 
-confirm = c2.checkbox("削除を確認しました")
-if c2.button("削除する", disabled=not confirm):
-    if db.delete_recipe(user, chosen):
+@st.dialog("このレシピを削除しますか？")
+def confirm_delete(recipe_id, recipe_name: str) -> None:
+    """削除の確認ダイアログ。「削除する」を押すまで、何も消えない。"""
+    st.write(f"「{recipe_name}」を削除します。この操作は元に戻せません。")
+    d1, d2 = st.columns(2)
+    if d1.button("キャンセル", width="stretch"):
         st.rerun()
-    else:
-        st.error("削除できませんでした。")
+    if d2.button("削除する", type="primary", width="stretch"):
+        if db.delete_recipe(user, recipe_id):
+            st.rerun()
+        else:
+            st.error("削除できませんでした。")
+
+
+if c2.button("このレシピを削除", icon=":material/delete:"):
+    confirm_delete(chosen, target["name"])

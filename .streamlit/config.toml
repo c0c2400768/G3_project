@@ -1,0 +1,15 @@
+# 画面の配色。ライト・ダークの両方を用意し、閲覧する人の設定（OSやブラウザの設定、または画面右上の設定）に従う。
+# 秘密情報は入れない（このファイルは GitHub に上げる。秘密は secrets.toml に書く）。
+[theme]
+primaryColor = "#F2674F"
+baseRadius = "large"
+
+[theme.light]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#FFF1EC"
+textColor = "#2B1D1A"
+
+[theme.dark]
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#141D30"
+textColor = "#F4EFEC"
