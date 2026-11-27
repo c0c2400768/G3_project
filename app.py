@@ -11,6 +11,7 @@ st.set_page_config(page_title="学生の食事判断支援アプリ", page_icon=
 
 from src import config, db, ui  # noqa: E402  （set_page_config は最初に呼ぶ必要がある）
 from src.data_loader import load_meals  # noqa: E402
+from src.sources import sources_markdown  # noqa: E402
 
 ui.apply_theme()
 
@@ -210,13 +211,4 @@ ui.feature_cards([
 ])
 
 with st.expander("出典と仮定値"):
-    st.markdown(
-        "- 食材価格：e-Stat 小売物価統計（東京都区部・月次、2025-09〜2026-08）。最新月（2026-08）を使用\n"
-        "- 栄養：日本食品成分表（八訂）増補2023、日本人の食事摂取基準（2025年版）を加工して作成\n"
-        "- 外食：外食チェーン10社の公開資料による100件の価格・栄養\n"
-        "- 自炊：学生の自炊を想定して作成した30品。調理時間・食材ロス率"
-        f"（基準{config.LOSS_RATE:.0%}）は**仮定値**\n"
-        f"- 朝・昼・夜の配分は {config.SLOT_RATIO['morning']:.0%}・"
-        f"{config.SLOT_RATIO['lunch']:.0%}・{config.SLOT_RATIO['dinner']:.0%}（仮定）\n"
-        "- 自作レシピの栄養はAIの概算を含みます。医療・栄養指導の代わりにはなりません。"
-    )
+    st.markdown(sources_markdown())

@@ -11,6 +11,7 @@ import streamlit as st
 st.set_page_config(page_title="一日の提案", page_icon="🍚", layout="wide")
 
 from src import config, db, optimize as opt, ui, user_recipes as ur  # noqa: E402
+from src.sources import ESTIMATED_EATOUT_NOTE, sources_markdown  # noqa: E402
 from src.data_loader import load_meals, load_recipes  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,6 +68,8 @@ else:
     meals = load_meals()
     if recipe_rows:
         meals = pd.concat([meals, ur.to_meal_rows(recipe_rows)], ignore_index=True)
+        # 自作レシピ（自炊）にも同じ光熱費・買い物時間を足す（既存の行は二重に足されない）
+        meals = opt.apply_cooking_overhead(meals, config.UTILITY_YEN_PER_MEAL, config.SHOP_MIN_PER_MEAL)
     slot = opt.assign_slots(meals, kcal_target, config.SLOT_RATIO, config.SLOT_TOL)
     res = opt.optimize_topn(slot, cond["budget"], cond["max_prep"], target, config.AUX_NUTRIENTS,
                             likes=likes, lam=cond.get("lam", 0), on_progress=_on_progress)
@@ -141,7 +144,8 @@ def show_ingredients(sel: pd.DataFrame) -> None:
             info = MEAL_INFO.loc[r["meal_id"]] if r["meal_id"] in MEAL_INFO.index else None
             title = f"**{ui_slot(r['slot'])}：{r['name']}**"
             if info is not None:
-                title += f"　食材費 約{info['base_cost_yen']:,.0f}円（ロス{config.LOSS_RATE:.0%}込み {r['cost_yen']:,.0f}円）"
+                title += (f"　食材費 約{info['base_cost_yen']:,.0f}円（ロス{config.LOSS_RATE:.0%}込み）"
+                          f"＋光熱費 {config.UTILITY_YEN_PER_MEAL}円 ＝ {r['cost_yen']:,.0f}円")
             st.markdown(title)
             st.dataframe(
                 pd.DataFrame({"材料": ing["ingredient"].map(clean_ingredient),
@@ -151,6 +155,16 @@ def show_ingredients(sel: pd.DataFrame) -> None:
             if info is not None and bool(info.get("price_approx")):
                 st.caption("一部の食材は、近い品目の価格で代用した概算です。")
         st.caption("分量は量の倍率を反映しています。調味料は省いている場合があります。")
+
+
+def est_label(r: pd.Series) -> str:
+    """栄養が推定値の食事に付けるバッジの文字（推定でなければ空）。"""
+    if pd.notna(r.get("owner")):  # 自作レシピ
+        return "AI概算" if (pd.notna(r.get("ai_estimated")) and bool(r["ai_estimated"])) else ""
+    mid = r["meal_id"]
+    if mid in MEAL_INFO.index and bool(MEAL_INFO.loc[mid, "nutri_estimated"]):
+        return "栄養推定"
+    return ""
 
 
 def ui_slot(slot: str) -> str:
@@ -171,7 +185,8 @@ def show_savings(plan: dict) -> None:
     c2.metric(f"1週間（7日）", f"{abs(diff) * 7:,.0f}円", f"{word}", delta_color="normal" if diff >= 0 else "inverse")
     c3.metric(f"1か月（30日）", f"{abs(diff) * 30:,.0f}円", f"{word}", delta_color="normal" if diff >= 0 else "inverse")
     st.caption(
-        f"この案は外食のみより1日 {abs(diff):,.0f}円{word}です。自炊の費用はロス率{config.LOSS_RATE:.0%}（仮定）を含み、"
+        f"この案は外食のみより1日 {abs(diff):,.0f}円{word}です。自炊の費用はロス率{config.LOSS_RATE:.0%}と光熱費{config.UTILITY_YEN_PER_MEAL}円/食、"
+        f"準備時間は買い物{config.SHOP_MIN_PER_MEAL}分/食を含み（いずれも仮定）、"
         "外食のみは同じ予算・準備時間・栄養の条件で組んだ最小コストです。毎日同じ案を続けた場合の目安です。"
     )
 
@@ -186,11 +201,16 @@ def show_plan(plan: dict) -> None:
     c3.metric("総エネルギー", f"{totals['kcal']:,.0f} kcal", help=f"目標 {kcal_target:,} kcal")
 
     ui.section("この案の献立", "utensils")
+    labels = [est_label(r) for _, r in sel.iterrows()]
     ui.meal_cards([
         {"slot": ui_slot(r["slot"]), "type": r["type"], "name": r["name"],
-         "cost": r["cost_yen"], "prep": r["prep_min"], "kcal": r["kcal"]}
-        for _, r in sel.iterrows()
+         "cost": r["cost_yen"], "prep": r["prep_min"], "kcal": r["kcal"], "est": lab}
+        for (_, r), lab in zip(sel.iterrows(), labels)
     ])
+    if "栄養推定" in labels:
+        st.caption(f"「栄養推定」の外食は、公式の栄養値がそろっていないため推定値を使っています：{ESTIMATED_EATOUT_NOTE}。")
+    if "AI概算" in labels:
+        st.caption("「AI概算」の自作レシピは、栄養をAI（Gemini）で概算した値です。実際の値と異なることがあります。")
     show_savings(plan)
     show_ingredients(sel)
 
@@ -247,14 +267,7 @@ for tab, plan in zip(tabs, plans):
 st.caption("案は、すでに選んだ案と2食以上違うものだけを並べています。")
 
 with st.expander("出典と仮定値"):
-    st.markdown(
-        "- 食材価格：e-Stat 小売物価統計（東京都区部・月次）の最新月。一部の食材は近い品目の価格で代用（概算）\n"
-        "- 栄養：日本食品標準成分表（八訂）増補2023、日本人の食事摂取基準（2025年版）を加工して作成\n"
-        "- 外食：外食チェーンの公開資料による価格・栄養。**準備時間（移動・待ち）は仮定値**\n"
-        f"- 自炊：調理・片付け時間とロス率（{config.LOSS_RATE:.0%}）は**仮定値**。量の倍率は1.0・1.3・1.5\n"
-        "- 朝・昼・夜の配分は朝0.30・昼0.30・夜0.40（仮定）。基準が未設定の補助栄養は充足度を判定しません\n"
-        "- 自作レシピの栄養にはAIの概算を含みます。医療・栄養指導の代わりにはなりません。"
-    )
+    st.markdown(sources_markdown())
 
 # 好み登録ページ用に、今回提案された食事（recipe_id 単位）を保存する
 seen, proposed = set(), []

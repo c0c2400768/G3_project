@@ -12,7 +12,8 @@ st.set_page_config(page_title="条件別の分析 | 食事判断支援", page_ic
 
 from src import config, ui  # noqa: E402
 from src.data_loader import load_meals  # noqa: E402
-from src.optimize import assign_slots, optimize  # noqa: E402
+from src.sources import sources_markdown  # noqa: E402
+from src.optimize import apply_cooking_overhead, assign_slots, optimize  # noqa: E402
 
 ui.apply_theme()
 ui.page_header("条件別の分析", "準備時間や食材ロス率を変え、外食のみの場合と費用・組み合わせを比較します。")
@@ -71,6 +72,8 @@ prep_default = int(saved_params.get("prep", prep_default))
 _g0, _gs = min(config.PREP_GRID), config.PREP_GRID[1] - config.PREP_GRID[0]
 prep_default = _g0 + round((prep_default - _g0) / _gs) * _gs  # 15分刻みに丸める
 loss_default = int(round(saved_params.get("loss", config.LOSS_RATE) * 100))
+utility_default = int(saved_params.get("utility", config.UTILITY_YEN_PER_MEAL))
+shop_default = int(saved_params.get("shop", config.SHOP_MIN_PER_MEAL))
 
 with st.form("analysis_conditions"):
     st.subheader("分析条件")
@@ -78,12 +81,20 @@ with st.form("analysis_conditions"):
     budget_input = c1.number_input("1日の予算（円）", 500, 5000, budget_default, 100, key="analysis_budget")
     prep_input = c2.slider("準備時間の上限（分／日）", min_value=min(config.PREP_GRID), max_value=max(config.PREP_GRID), step=15, value=max(min(prep_default, max(config.PREP_GRID)), min(config.PREP_GRID)), key="analysis_prep")
     loss_input = c3.slider("自炊の食材ロス率", 0, 40, max(0, min(40, loss_default)), 5, format="%d%%", key="analysis_loss") / 100
+    d1, d2 = st.columns(2)
+    utility_input = d1.slider("自炊の光熱費（円／食）", min(config.UTILITY_GRID), max(config.UTILITY_GRID),
+                              utility_default, 5, key="analysis_utility",
+                              help=f"ガス・電気・水道代。基準は{config.UTILITY_YEN_PER_MEAL}円（計算による目安）")
+    shop_input = d2.slider("自炊の買い物時間（分／食）", min(config.SHOP_GRID), max(config.SHOP_GRID),
+                           shop_default, 1, key="analysis_shop",
+                           help=f"準備時間に足します。基準は{config.SHOP_MIN_PER_MEAL}分（仮定）")
     st.caption(f"目標エネルギー {energy:,} kcal/日 · 朝昼夕の配分 {config.SLOT_RATIO['morning']:.0%}/{config.SLOT_RATIO['lunch']:.0%}/{config.SLOT_RATIO['dinner']:.0%}。基準はトップページで選んだ条件から引き継いでいます。")
     submitted = st.form_submit_button("確認して分析する", type="primary", use_container_width=True)
 
 if submitted:
     st.session_state["analysis_params"] = {
         "budget": int(budget_input), "prep": int(prep_input), "loss": float(loss_input),
+        "utility": int(utility_input), "shop": int(shop_input),
     }
     saved_params = st.session_state["analysis_params"]
 
@@ -94,7 +105,10 @@ if not saved_params:
 budget = int(saved_params["budget"])
 prep = int(saved_params["prep"])
 loss = float(saved_params["loss"])
-st.caption(f"表示中の分析条件：予算 {budget:,} 円／日 · 準備時間 {prep} 分／日 · 食材ロス率 {loss:.0%}")
+utility = int(saved_params.get("utility", config.UTILITY_YEN_PER_MEAL))
+shop = int(saved_params.get("shop", config.SHOP_MIN_PER_MEAL))
+st.caption(f"表示中の分析条件：予算 {budget:,} 円／日 · 準備時間 {prep} 分／日 · 食材ロス率 {loss:.0%}"
+           f" · 自炊の光熱費 {utility} 円／食 · 買い物時間 {shop} 分／食")
 
 try:
     meals = load_meals()
@@ -107,6 +121,7 @@ try:
         st.error("分析に必要な列が食事データにありません: " + ", ".join(missing))
         st.stop()
     funcs = analysis_functions()
+    meals = apply_cooking_overhead(meals, utility, shop)
     meals = funcs["apply_loss"](meals, loss)
     slotted = assign_slots(meals, energy, config.SLOT_RATIO, config.SLOT_TOL)
     nutrition = funcs["build_nutrition_target"](energy, config.ENERGY_RATIO, config.KCAL_PER_G, config.KCAL_TOL)
@@ -208,6 +223,9 @@ with st.expander("分析の前提とデータ"):
     st.markdown(
         "- 最適化は朝・昼・夜の各1食を選び、予算・準備時間・栄養条件を満たす中で費用を最小化します。\n"
         "- 外食のみの基準は、準備時間の上限を適用せずに計算します。\n"
+        "- 自炊の費用には光熱費、準備時間には買い物時間を含みます（上のスライダーで変更可）。\n"
         "- 食材ロス率、準備時間の刻み、栄養許容幅には仮定値が含まれます。補助栄養項目の基準が未設定の場合は判定しません。\n"
-        "- データ出典と仮定値はトップページの「出典と仮定値」を参照してください。"
+        "- 外食30件の栄養は推定値です（サイゼリヤ・丸亀製麺・日高屋・マクドナルドのセット）。"
     )
+with st.expander("出典と仮定値"):
+    st.markdown(sources_markdown())

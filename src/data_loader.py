@@ -13,8 +13,16 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 @st.cache_data
 def load_meals() -> pd.DataFrame:
-    """1食テーブル（外食100件＋自炊90行）を返す。"""
-    return pd.read_csv(DATA_DIR / "meals.csv", encoding="utf-8-sig")
+    """1食テーブル（外食100件＋自炊90行）を返す。自炊は光熱費・買い物時間を含む（列 utility_yen・shop_min）。"""
+    meals = pd.read_csv(DATA_DIR / "meals.csv", encoding="utf-8-sig")
+    # 栄養が推定値の外食（gaishoku_candidates.csv の is_assumed）。meals.csv の is_assumed は全行 True のため使わない
+    g = pd.read_csv(DATA_DIR / "gaishoku_candidates.csv", encoding="utf-8-sig", usecols=["meal_id", "is_assumed"])
+    est_ids = set(g.loc[g["is_assumed"].astype(str).str.lower().eq("true"), "meal_id"].str.lower())
+    meals["nutri_estimated"] = meals["meal_id"].str.lower().isin(est_ids)
+    # 自炊に光熱費と買い物時間を足す（値は config。分析ページでは画面から変えられる）
+    from src import config
+    from src.optimize import apply_cooking_overhead
+    return apply_cooking_overhead(meals, config.UTILITY_YEN_PER_MEAL, config.SHOP_MIN_PER_MEAL)
 
 
 @st.cache_data

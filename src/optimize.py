@@ -12,6 +12,25 @@ SLOTS = ("morning", "lunch", "dinner")  # 食事の枠（朝・昼・夜の順�
 EPS = 1e-9  # 小数の誤差で境界値を落とさないための微小値
 
 
+def apply_cooking_overhead(meals_df, utility_yen, shop_min):
+    """自炊の行に、光熱費（円/食）を費用へ、買い物時間（分/食）を準備時間へ足した表を返す。外食は変えない。
+
+    何度呼んでも二重に足さないよう、足した値を utility_yen・shop_min 列に持ち、前の値を引いてから足し直す。
+    ロス率を掛け直す apply_loss（sensitivity.ipynb）は utility_yen 列を足し戻すので、順番はどちらでもよい。
+    """
+    out = meals_df.copy()
+    cooked = out["type"].eq("自炊")
+    old_u = pd.to_numeric(out.get("utility_yen", 0), errors="coerce").fillna(0) if "utility_yen" in out else 0.0
+    old_s = pd.to_numeric(out.get("shop_min", 0), errors="coerce").fillna(0) if "shop_min" in out else 0.0
+    new_u = np.where(cooked, float(utility_yen), 0.0)
+    new_s = np.where(cooked, float(shop_min), 0.0)
+    out["cost_yen"] = out["cost_yen"].astype(float) - old_u + new_u
+    out["prep_min"] = out["prep_min"].astype(float) - old_s + new_s
+    out["utility_yen"] = new_u
+    out["shop_min"] = new_s
+    return out
+
+
 def _parse_exclude(value): #形式の統一用関数
     """exclude_slots の1セル（例: "morning,lunch"）を集合にする。空欄は空集合。"""
     # 空欄は CSV では NaN になるので、空文字と合わせて「除外なし」にする
