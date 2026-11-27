@@ -89,14 +89,14 @@ with st.form("analysis_conditions"):
                            shop_default, 1, key="analysis_shop",
                            help=f"準備時間に足します。基準は{config.SHOP_MIN_PER_MEAL}分（仮定）")
     st.caption(f"目標エネルギー {energy:,} kcal/日 · 朝昼夕の配分 {config.SLOT_RATIO['morning']:.0%}/{config.SLOT_RATIO['lunch']:.0%}/{config.SLOT_RATIO['dinner']:.0%}。基準はトップページで選んだ条件から引き継いでいます。")
-    submitted = st.form_submit_button("確認して分析する", type="primary", use_container_width=True)
+    submitted = st.form_submit_button("確認して分析する", type="primary", width="stretch")
 
 if submitted:
-    st.session_state["analysis_params"] = {
+    saved_params = {
         "budget": int(budget_input), "prep": int(prep_input), "loss": float(loss_input),
         "utility": int(utility_input), "shop": int(shop_input),
     }
-    saved_params = st.session_state["analysis_params"]
+    st.session_state["analysis_params"] = saved_params
 
 if not saved_params:
     st.info("分析条件を設定し、「確認して分析する」を押すと結果を表示します。")
@@ -150,18 +150,23 @@ if best["feasible"]:
     if not baseline["feasible"]:
         st.info("現在の予算と栄養条件を満たす外食のみの組み合わせがないため、節約額は比較できません。")
     selected = best["selected"].copy()
+    selected["cost_yen"] = selected["cost_yen"].round(0).astype(int)
+    selected["prep_min"] = selected["prep_min"].round(0).astype(int)
     selected["食事枠"] = selected["slot"].map({"morning": "朝", "lunch": "昼", "dinner": "夜"})
     selected = selected.rename(columns={"name": "メニュー", "type": "区分", "cost_yen": "費用（円）", "prep_min": "準備時間（分）"})
     show_cols = [c for c in ["食事枠", "区分", "メニュー", "費用（円）", "準備時間（分）"] if c in selected.columns]
-    st.dataframe(selected[show_cols], hide_index=True, use_container_width=True)
-    adequacy = funcs["nutrition_adequacy"](best["totals"], nutrition, config.AUX_REFERENCE)
+    st.dataframe(selected[show_cols], hide_index=True, width="stretch")
+    aux_reference = config.AUX_REFERENCE_BY_SEX.get(sex, config.AUX_REFERENCE)
+    adequacy = funcs["nutrition_adequacy"](best["totals"], nutrition, aux_reference)
     adequacy["項目"] = adequacy["nutrient"].map(lambda x: LABELS.get(x, (x, ""))[0])
     adequacy["単位"] = adequacy["nutrient"].map(lambda x: LABELS.get(x, (x, ""))[1])
     adequacy["合計"] = adequacy.apply(lambda r: "—" if pd.isna(r["total"]) else f"{r['total']:,.1f} {r['単位']}", axis=1)
     adequacy["基準との比較"] = adequacy.apply(lambda r: "基準未設定" if r["status"] == "基準未設定" else ("—" if pd.isna(r["ratio_pct"]) else f"{r['ratio_pct']:.0f}%"), axis=1)
     adequacy["判定"] = adequacy["status"]
     with st.expander("栄養の充足度", expanded=False):
-        st.dataframe(adequacy[["項目", "role", "合計", "基準との比較", "判定"]].rename(columns={"role": "位置づけ"}), hide_index=True, use_container_width=True)
+        st.dataframe(adequacy[["項目", "role", "合計", "基準との比較", "判定"]].rename(columns={"role": "位置づけ"}), hide_index=True, width="stretch")
+        if sex == "female":
+            st.caption("女性の鉄の推奨量は月経の有無で異なるため、このページでは判定していません。")
 else:
     st.warning("この条件では、予算・準備時間・栄養の制約をすべて満たす組み合わせがありません。下のグラフで準備時間を広げた場合を確認できます。")
     reason = best.get("reason") or {}
@@ -190,7 +195,7 @@ try:
     break_even_fig = funcs["plot_breakeven"](curve, switches)
     break_even_fig.update_xaxes(showgrid=True, gridcolor="#e6e5e1", zeroline=True, zerolinecolor="#b9b7b1")
     break_even_fig.update_yaxes(showgrid=True, gridcolor="#e6e5e1", zeroline=True, zerolinecolor="#b9b7b1")
-    st.plotly_chart(break_even_fig, use_container_width=True)
+    st.plotly_chart(break_even_fig, width="stretch")
     a, b = st.columns(2)
     first = switches["first_feasible_prep"]
     cross = switches["crossover_prep"]
@@ -200,22 +205,30 @@ except Exception as exc:
     st.warning(f"損益分岐の計算を表示できませんでした: {exc}")
 
 st.subheader("準備時間 × 食材ロス率")
-st.caption("色は外食のみと比べた1日あたりの差額です。プラスは節約、マイナスは費用増を示します。灰色は条件を満たす案がないセルです。セルにカーソルを合わせると金額と自炊の食数を確認できます。")
 try:
     grid = funcs["loss_prep_grid"](slotted, int(budget), config.PREP_GRID, config.LOSS_GRID, nutrition)
-    heatmap_fig = funcs["plot_heatmap"](grid)
-    # Each cell is narrow on a laptop screen; put details in the hover tooltip
-    # instead of repeating long labels inside every cell.
+    if grid["saving_per_day"].notna().any():
+        heatmap_value = "saving_per_day"
+        st.caption("色は外食のみと比べた1日あたりの差額です。プラスは節約、マイナスは費用増を示します。灰色は条件を満たす案がないセルです。カーソルを合わせると金額と自炊の食数を確認できます。")
+    else:
+        # With no feasible eatout-only baseline, savings cannot be defined.
+        # Show the best feasible daily cost so the cooked plans remain useful.
+        heatmap_value = "total_cost"
+        st.caption("外食のみの基準案がないため、色は1日の最小費用を示します。灰色は条件を満たす案がないセルです。カーソルを合わせると費用と自炊の食数を確認できます。")
+    heatmap_fig = funcs["plot_heatmap"](grid, value=heatmap_value)
+    # Keep the values in hover details; remove labels that overlap in narrow cells.
     for trace in heatmap_fig.data:
         if trace.type == "heatmap":
             trace.text = None
             trace.texttemplate = None
             trace.xgap = 1
             trace.ygap = 1
+            if heatmap_value == "total_cost":
+                trace.colorbar.title.text = "1日の最小費用（円）"
     heatmap_fig.update_layout(height=460, margin=dict(l=70, r=35, t=30, b=65))
-    heatmap_fig.update_xaxes(tickangle=0, automargin=True)
+    heatmap_fig.update_xaxes(automargin=True)
     heatmap_fig.update_yaxes(automargin=True)
-    st.plotly_chart(heatmap_fig, use_container_width=True)
+    st.plotly_chart(heatmap_fig, width="stretch")
 except Exception as exc:
     st.warning(f"条件別の比較表を表示できませんでした: {exc}")
 
@@ -224,7 +237,8 @@ with st.expander("分析の前提とデータ"):
         "- 最適化は朝・昼・夜の各1食を選び、予算・準備時間・栄養条件を満たす中で費用を最小化します。\n"
         "- 外食のみの基準は、準備時間の上限を適用せずに計算します。\n"
         "- 自炊の費用には光熱費、準備時間には買い物時間を含みます（上のスライダーで変更可）。\n"
-        "- 食材ロス率、準備時間の刻み、栄養許容幅には仮定値が含まれます。補助栄養項目の基準が未設定の場合は判定しません。\n"
+        "- 補助栄養項目は厚生労働省「日本人の食事摂取基準（2025年版）」の18〜29歳の値です。女性の鉄は月経の有無で推奨量が異なるため判定しません。\n"
+        "- 食材ロス率、準備時間の刻み、栄養許容幅には仮定値が含まれます。\n"
         "- 外食30件の栄養は推定値です（サイゼリヤ・丸亀製麺・日高屋・マクドナルドのセット）。"
     )
 with st.expander("出典と仮定値"):

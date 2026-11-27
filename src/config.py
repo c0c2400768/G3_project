@@ -49,9 +49,32 @@ KCAL_PER_G = {"protein_g": 4, "fat_g": 9, "carb_g": 4}
 # kcal の許容幅（目標の±10%）。仮の値で根拠なし。決まったら書き換える
 KCAL_TOL = 0.10
 
-# 補助項目の基準値（充足度の表示用）。公式資料で未確認のため None（基準未設定）。
-# 確認できたら ("min", 値)（下限。下回れば不足）または ("max", 値)（上限。超えれば超過）を入れる
-AUX_REFERENCE = {"fiber_g": None, "salt_g": None, "calcium_mg": None, "iron_mg": None, "vitamin_c_mg": None}
+# 補助項目の基準（18〜29歳、2025年版）。
+# 形式: ("min", 値) は下限、("max", 値) は上限。
+# 出典（厚生労働省「日本人の食事摂取基準（2025年版）」）:
+#   食物繊維: https://www.mhlw.go.jp/content/10904750/001580152.pdf
+#   ナトリウム（食塩相当量）・カルシウム: https://www.mhlw.go.jp/content/10904750/001580156.pdf
+#   鉄: https://www.mhlw.go.jp/content/001694070.pdf
+#   ビタミンC: https://www.mhlw.go.jp/content/10904750/001580155.pdf
+# 女性の鉄の推奨量は月経の有無で異なる。アプリでは月経の有無を扱わないため、女性の鉄は判定しない。
+AUX_REFERENCE_BY_SEX = {
+    "male": {
+        "fiber_g": ("min", 20),
+        "salt_g": ("max", 8.0),
+        "calcium_mg": ("min", 800),
+        "iron_mg": ("min", 7.0),
+        "vitamin_c_mg": ("min", 100),
+    },
+    "female": {
+        "fiber_g": ("min", 18),
+        "salt_g": ("max", 7.0),
+        "calcium_mg": ("min", 650),
+        "iron_mg": None,
+        "vitamin_c_mg": ("min", 100),
+    },
+}
+# 旧コードとの互換用の既定値。画面では必ず性別に対応する表を選ぶ。
+AUX_REFERENCE = AUX_REFERENCE_BY_SEX["male"]
 
 # --- 自炊の量の倍率（2026-10-23 採用）。1.0 は1人前（レシピの分量そのまま） ---
 # 自炊メニューを倍率ごとに別の行として展開する。目標kcalが大きい人でも、
