@@ -78,9 +78,11 @@ ui.hero_stats(
     note="例は、女性・ふつう・予算1,500円・準備時間90分の場合の分析結果です。条件によって変わります。",
 )
 
-# ---------- 条件入力と、入力に合わせた目安 ----------
+# ---------- 入力の範囲と刻み ----------
 BUDGET_MIN, BUDGET_MAX = 500, 5000
 PREP_MIN, PREP_MAX = min(config.PREP_GRID), max(config.PREP_GRID)
+BUDGET_STEP = 100
+PREP_STEP = config.PREP_GRID[1] - config.PREP_GRID[0]  # 15分。分析ページ・最適化のグリッドと合わせる
 SEX_ICON = {"男性": "man", "女性": "woman"}
 ACT_ICON = {"低い": "event_seat", "ふつう": "directions_walk", "高い": "directions_run"}
 
@@ -89,32 +91,43 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, int(v)))
 
 
-def _adjust(key: str, delta: int, lo: int, hi: int) -> None:
-    """増減ボタンの処理。範囲を超えないようにそろえる。"""
-    st.session_state[key] = _clamp(st.session_state[key] + delta, lo, hi)
+def _snap(v, lo: int, hi: int, step: int) -> int:
+    """範囲内に収め、lo から step 刻みの値に丸める（例：47分 → 45分）。"""
+    v = _clamp(v, lo, hi)
+    return _clamp(lo + round((v - lo) / step) * step, lo, hi)
+
+
+def _adjust(key: str, delta: int, lo: int, hi: int, step: int) -> None:
+    """増減ボタンの処理。範囲を超えず、刻みに乗るようにそろえる。"""
+    st.session_state[key] = _snap(st.session_state[key] + delta, lo, hi, step)
+
+
+def _on_type(key: str, lo: int, hi: int, step: int) -> None:
+    """直接入力された値を刻みに丸める。"""
+    st.session_state[key] = _snap(st.session_state[key], lo, hi, step)
 
 
 # 値は session_state に持つ（ボタンで増減するため）。前回確定した条件があればそれを初期値にする
-st.session_state.setdefault("budget_v", _clamp(prev.get("budget", 1500), BUDGET_MIN, BUDGET_MAX))
-st.session_state.setdefault("prep_v", _clamp(prev.get("max_prep", 90), PREP_MIN, PREP_MAX))
+st.session_state.setdefault("budget_v", _snap(prev.get("budget", 1500), BUDGET_MIN, BUDGET_MAX, BUDGET_STEP))
+st.session_state.setdefault("prep_v", _snap(prev.get("max_prep", 90), PREP_MIN, PREP_MAX, PREP_STEP))
 
 
-def stepper(key: str, label: str, icon: str, unit: str, lo: int, hi: int,
+def stepper(key: str, label: str, icon: str, lo: int, hi: int, step: int,
             dec: list[int], inc: list[int], help: str | None = None) -> int:
     """大きな数値と、減らす／増やすボタンの組。現在の値を返す。"""
     ui.field_label(label, icon, help)
     c_val, c_btn = st.columns([2, 5], vertical_alignment="center")
     with c_val:
         # クリックして直接入力もできる（Enter か枠の外をクリックで確定）。ボタンの増減と同じ値を共有する
-        st.number_input(label, min_value=lo, max_value=hi, step=1, format="%d", key=key,
-                        label_visibility="collapsed")
+        st.number_input(label, min_value=lo, max_value=hi, step=step, format="%d", key=key,
+                        label_visibility="collapsed", on_change=_on_type, args=(key, lo, hi, step))
     with c_btn:
         for kind, steps in (("dec", dec), ("inc", inc)):
             with st.container(horizontal=True, vertical_alignment="center", gap="small"):
                 ui.step_tag(kind)
                 for d in steps:
                     st.button(f"{d:+,}".replace("-", "−"), key=f"{kind}_{key}_{abs(d)}", on_click=_adjust,
-                              args=(key, d, lo, hi), width="stretch")
+                              args=(key, d, lo, hi, step), width="stretch")
     return st.session_state[key]
 
 
@@ -139,10 +152,10 @@ with left:
             "身体活動レベル", list(ACTIVITY), default=act_default, key="act_sel", label_visibility="collapsed", width="stretch",
             format_func=lambda k: f":material/{ACT_ICON[k]}: {k}",
         ) or act_default
-        budget = stepper("budget_v", "1日の予算", "wallet", "円", BUDGET_MIN, BUDGET_MAX,
-                         [-1000, -100, -10, -1], [1, 10, 100, 1000])
-        max_prep = stepper("prep_v", "1日の準備時間の上限", "clock", "分", PREP_MIN, PREP_MAX,
-                           [-30, -10, -5, -1], [1, 5, 10, 30],
+        budget = stepper("budget_v", "1日の予算", "wallet", BUDGET_MIN, BUDGET_MAX, BUDGET_STEP,
+                         [-1000, -100], [100, 1000])
+        max_prep = stepper("prep_v", "1日の準備時間の上限", "clock", PREP_MIN, PREP_MAX, PREP_STEP,
+                           [-30, -15], [15, 30],
                            help="買い物を除く、調理・片付け・外食の受け取りなどの合計の想定時間")
         with st.expander("詳細設定（好み・自作レシピ）", icon=":material/settings:"):
             lam = st.slider(

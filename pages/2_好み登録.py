@@ -67,6 +67,8 @@ def on_star(rid: str) -> None:
         cache[rid] = score
         st.toast(f"保存しました（{ui.LIKE_LABELS[score]}）", icon=":material/check_circle:")
     else:
+        # 保存に失敗したら、星を保存済みの値（なければ未評価）に戻して表示と食い違わないようにする
+        st.session_state[key] = cache[rid] - 1 if rid in cache else None
         st.toast(msg, icon=":material/error:")
 
 

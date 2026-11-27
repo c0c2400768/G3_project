@@ -68,6 +68,8 @@ prep_default = int(conditions.get("max_prep", 90))
 saved_params = st.session_state.get("analysis_params", {})
 budget_default = int(saved_params.get("budget", budget_default))
 prep_default = int(saved_params.get("prep", prep_default))
+_g0, _gs = min(config.PREP_GRID), config.PREP_GRID[1] - config.PREP_GRID[0]
+prep_default = _g0 + round((prep_default - _g0) / _gs) * _gs  # 15分刻みに丸める
 loss_default = int(round(saved_params.get("loss", config.LOSS_RATE) * 100))
 
 with st.form("analysis_conditions"):

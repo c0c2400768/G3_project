@@ -185,9 +185,6 @@ __NAV_ICON_RULES__
 .ui-field > .ui-i { width: 1.45rem; height: 1.45rem; color: __ACCENT__; }
 .ui-field .ui-help { display: inline-flex; opacity: .55; cursor: help; }
 .ui-field .ui-help .ui-i { width: 1.1rem; height: 1.1rem; }
-.ui-valbox { background: rgba(128, 128, 128, .12); border-radius: 14px; padding: .9rem .6rem; text-align: center; }
-.ui-valbox b { font-size: 2rem; font-weight: 800; line-height: 1.1; }
-.ui-valbox span { font-size: 1rem; margin-left: .25rem; opacity: .75; }
 .ui-steptag { display: inline-flex; align-items: center; gap: .4rem; min-width: 5.2rem; font-size: .9rem;
               opacity: .9; white-space: nowrap; }
 .ui-steptag .ui-i { width: 1.25rem; height: 1.25rem; }
@@ -199,14 +196,14 @@ __NAV_ICON_RULES__
 [class*="st-key-inc_"] button { color: __ACCENT__; border-color: rgba(242, 103, 79, .55); background: rgba(242, 103, 79, .06); }
 
 /* 性別・身体活動レベルの選択ボタン（Streamlit は kind 属性で種類を分けている） */
-[data-testid="stButtonGroup"] { gap: .6rem; overflow: visible; }
-button[kind="segmented_control"], button[kind="segmented_controlActive"] {
+:is(.st-key-sex_sel, .st-key-act_sel) [data-testid="stButtonGroup"] { gap: .6rem; overflow: visible; }
+:is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_control"], :is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_controlActive"] {
     flex: 1 1 0; min-height: 3.2rem; position: relative; border-radius: 14px; overflow: visible; }
-button[kind="segmented_control"] p, button[kind="segmented_controlActive"] p {
+:is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_control"] p, :is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_controlActive"] p {
     font-size: 1.1rem; font-weight: 700; }
-button[kind="segmented_controlActive"] { border-color: __ACCENT__;
+:is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_controlActive"] { border-color: __ACCENT__;
     background: rgba(242, 103, 79, .10); color: __ACCENT__; }
-button[kind="segmented_controlActive"]::after { content: "✓"; position: absolute;
+:is(.st-key-sex_sel, .st-key-act_sel) button[kind="segmented_controlActive"]::after { content: "✓"; position: absolute;
     top: 50%; right: .9rem; transform: translateY(-50%); width: 1.35rem; height: 1.35rem; border-radius: 50%;
     background: __ACCENT__; color: #fff; font-size: .8rem; display: flex; align-items: center; justify-content: center; }
 .st-key-confirm button { min-height: 3.3rem; font-size: 1.2rem; border-radius: 16px;
@@ -432,12 +429,6 @@ def field_label(text: str, icon: str, help: str | None = None) -> None:
     )
 
 
-def value_box(value: str, unit: str) -> None:
-    """入力中の値を大きく見せる枠。"""
-    st.markdown(f'<div class="ui-valbox"><b>{html.escape(value)}</b><span>{html.escape(unit)}</span></div>',
-                unsafe_allow_html=True)
-
-
 def step_tag(kind: str) -> None:
     """増減ボタンの行頭ラベル。kind は "dec"（減らす）か "inc"（増やす）。"""
     icon, text = ("minus", "減らす") if kind == "dec" else ("plus", "増やす")
@@ -453,7 +444,7 @@ _LIKES_CSS = """
 .lk-prog-l b { font-size: 1.8rem; font-weight: 800; }
 .lk-prog-l span { margin-left: .3rem; opacity: .75; }
 .lk-prog-r { width: min(320px, 45%); text-align: right; }
-.lk-pct { font-size: 1.35rem; font-weight: 800; color: #f5b301; }
+.lk-pct { font-size: 1.35rem; font-weight: 800; }
 .lk-bar { height: 8px; border-radius: 999px; background: rgba(128, 128, 128, .25); overflow: hidden; margin-top: .3rem; }
 .lk-bar > i { display: block; height: 100%; border-radius: 999px; background: __ACCENT__; }
 .lk-title { font-size: 1.4rem; font-weight: 800; padding-top: .3rem; }
@@ -465,7 +456,9 @@ _LIKES_CSS = """
            background: rgba(128, 128, 128, .22); font-weight: 700; font-size: .85rem; }
 .lk-chip .ui-i { width: 1rem; height: 1rem; }
 .lk-label { font-size: .9rem; opacity: .7; margin-top: -.2rem; }
-.lk-label.on { color: #f5b301; opacity: 1; font-weight: 600; }
+/* 黄色の上に濃い文字（白背景・ダーク背景のどちらでも読める。コントラスト比 約8.8:1） */
+.lk-label.on { display: inline-block; background: #f5b301; color: #2b1d1a; opacity: 1; font-weight: 700;
+               padding: .1rem .6rem; border-radius: 999px; }
 [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 18px; }
 </style>
 """
