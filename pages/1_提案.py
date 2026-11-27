@@ -212,10 +212,13 @@ def show_plan(plan: dict) -> None:
         hoverinfo="skip",
     ))
     fig.add_vline(x=100, line_dash="dash", line_color="#52514e")
-    fig.update_traces(marker_line_width=0, textfont_size=14)
-    fig.update_layout(template="simple_white", height=70 + 52 * len(shown), showlegend=False, bargap=0.35,
-                      font=dict(size=14), xaxis_title="基準に対する割合（%）", margin=dict(l=10, r=80, t=10, b=40),
+    fig.update_traces(marker_line_width=0, textfont_size=17)
+    fig.update_layout(template="simple_white", height=80 + 60 * len(shown), showlegend=False, bargap=0.35,
+                      font=dict(size=16), xaxis_title="基準に対する割合（%）", margin=dict(l=10, r=110, t=10, b=50),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    # 右端の「○%（充足）」が切れないよう、横軸を最大値より広めにとる
+    fig.update_xaxes(tickfont_size=15, title_font_size=16, range=[0, max(shown["ratio_pct"].max(), 100) * 1.3])
+    fig.update_yaxes(tickfont_size=16)
     fig.update_yaxes(autorange="reversed")
     ui.section("栄養の充足度", "heart")
     st.plotly_chart(fig)

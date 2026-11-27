@@ -257,23 +257,57 @@ button[kind="segmented_controlActive"]::after { content: "✓"; position: absolu
 </style>
 """
 
-# 提案ページなど、文字を少し大きくしたいページで使う CSS
+# 提案ページ用の CSS（larger_text() で入れる。提案ページだけに効く）
+# 見やすさ優先：背景のグラデーションをやめて単色に、文字は薄くせず濃く・少し大きくする
 _LARGE_CSS = """
 <style>
+/* 文字サイズ（全体を少し大きく） */
 .block-container [data-testid="stMarkdownContainer"] p,
-.block-container [data-testid="stMarkdownContainer"] li { font-size: 1.08rem; }
-.block-container [data-testid="stCaptionContainer"] p { font-size: .95rem; }
-[data-testid="stAlertContainer"] p { font-size: 1.05rem; }
-[data-testid="stProgress"] p { font-size: 1.05rem; font-weight: 600; }
-[data-testid="stExpander"] summary p { font-size: 1.05rem; font-weight: 600; }
-[data-baseweb="tab"] p { font-size: 1.08rem; font-weight: 700; }
-[data-testid="stMetric"] { background: rgba(128, 128, 128, .08); border: 1px solid rgba(128, 128, 128, .2);
-                           border-radius: 14px; padding: .8rem 1rem; }
-[data-testid="stMetricLabel"] p { font-size: 1rem; }
-[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 800; }
-.ui-stat-l { font-size: .85rem; }
-.ui-stat-v { font-size: 1.35rem; }
-.ui-section { font-size: 1.35rem; margin-top: 1.2rem; }
+.block-container [data-testid="stMarkdownContainer"] li { font-size: 1.15rem; }
+[data-testid="stMetricValue"] [data-testid="stMarkdownContainer"] p { font-size: inherit !important; }
+[data-testid="stAlertContainer"] p { font-size: 1.12rem; }
+[data-testid="stProgress"] p { font-size: 1.12rem; font-weight: 600; }
+[data-testid="stExpander"] summary p { font-size: 1.15rem; font-weight: 700; }
+[data-baseweb="tab"] p { font-size: 1.2rem; font-weight: 700; }
+
+/* 注釈（caption）：薄い表示をやめる */
+[data-testid="stCaptionContainer"] { opacity: 1 !important; }
+.block-container [data-testid="stCaptionContainer"] p { font-size: 1.05rem; line-height: 1.7; }
+
+/* 総コストなどの数字カード */
+[data-testid="stMetric"] { background: rgba(128, 128, 128, .10); border: 1px solid rgba(128, 128, 128, .3);
+                           border-radius: 14px; padding: .9rem 1.1rem; }
+[data-testid="stMetricLabel"] p { font-size: 1.1rem !important; font-weight: 700; }
+[data-testid="stMetricValue"] { font-size: 2.1rem; font-weight: 800; }
+
+/* 上のバナー：グラデーションをやめて単色に。文字は白で濃く */
+.ui-hero { background: #1f2535 !important; box-shadow: none; }
+.ui-badge { background: __ACCENT__ !important; box-shadow: none; }
+.ui-hero-sub { color: #fff !important; font-size: 1.12rem; }
+.ui-hero-note { color: #fff !important; }
+.ui-stat { background: #2e3649; }
+.ui-stat-l { color: #e8ecf4 !important; font-size: 1rem; font-weight: 600; }
+.ui-stat-v { font-size: 1.5rem; }
+
+/* 最安の金額のカード：単色に、文字を濃く */
+.ui-result { background: rgba(242, 103, 79, .10) !important; border-width: 2px; }
+.ui-result-l { opacity: 1; font-size: 1.15rem; font-weight: 700; }
+.ui-result-v { font-size: 2.6rem; }
+.ui-result-v span { font-size: 1.25rem; }
+.ui-result-s { opacity: 1; font-size: 1.08rem; }
+
+/* 献立カード */
+.ui-meal { background: rgba(128, 128, 128, .10); border-color: rgba(128, 128, 128, .35); }
+.ui-meal-slot { font-size: 1.25rem; }
+.ui-chip { font-size: .95rem; }
+.ui-meal-name { font-size: 1.3rem; }
+.ui-meal-meta { opacity: 1; font-size: 1.1rem; }
+
+/* 見出し */
+.ui-section { font-size: 1.5rem; margin-top: 1.4rem; }
+
+/* グラフの文字：灰色をやめて本文と同じ濃い色に */
+[data-testid="stPlotlyChart"] .main-svg text { fill: currentColor !important; }
 </style>
 """
 
@@ -304,8 +338,8 @@ def apply_theme() -> None:
 
 
 def larger_text() -> None:
-    """そのページの文字を少し大きくし、st.metric をカード風にする。apply_theme の後に呼ぶ。"""
-    st.markdown(_LARGE_CSS, unsafe_allow_html=True)
+    """提案ページの見た目を見やすくする（背景を単色に、文字を濃く・大きく）。apply_theme の後に呼ぶ。"""
+    st.markdown(_LARGE_CSS.replace("__ACCENT__", ACCENT), unsafe_allow_html=True)
 
 
 def hero(title: str, subtitle: str, note: str | None = None, image: bool = True, compact: bool = False,
