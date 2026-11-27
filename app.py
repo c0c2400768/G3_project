@@ -19,6 +19,7 @@ PROPOSAL_PAGE = "pages/1_提案.py"
 SEX = {"男性": "male", "女性": "female"}
 ACTIVITY = {"低い": "low", "ふつう": "normal", "高い": "high"}
 SLOT_NAMES = {"morning": "朝", "lunch": "昼", "dinner": "夜"}
+MODE_ICON = {"mix": "sync_alt", "eatout": "storefront", "cook": "skillet"}
 
 st.session_state.setdefault("user", None)
 prev = st.session_state.get("conditions", {})
@@ -74,9 +75,9 @@ logged_in = bool(st.session_state["user"])
 ui.hero_stats(
     "今日の1日、外食と自炊をどう組む？",
     "予算・準備時間・栄養の条件から、費用がいちばん安い朝・昼・夜の組み合わせを提案します。",
-    [("外食のみ（例）", "1,170円", False, "soup"), ("最適な組み合わせ（例）", "662円", True, "pot"),
-     ("1か月の節約（例）", "約15,000円", False, "coins")],
-    note="例は、女性・ふつう・予算1,500円・準備時間90分の場合の分析結果です。条件によって変わります。",
+    [("外食のみ（例）", "1,170円", False, "soup"), ("最適な組み合わせ（例）", "763円", True, "pot"),
+     ("1か月の節約（例）", "約12,000円", False, "coins")],
+    note="例は、女性・ふつう・予算1,500円・準備時間90分の場合の結果です（自炊の光熱費・買い物時間を含む）。条件によって変わります。",
 )
 
 # ---------- 入力の範囲と刻み ----------
@@ -153,16 +154,36 @@ with left:
             "身体活動レベル", list(ACTIVITY), default=act_default, key="act_sel", label_visibility="collapsed", width="stretch",
             format_func=lambda k: f":material/{ACT_ICON[k]}: {k}",
         ) or act_default
+        ui.field_label("食事の種類", "utensils",
+                       help="組み合わせ：外食と自炊から安い組み合わせを選ぶ／外食のみ・自炊のみ：その日の事情に合わせて限定する")
+        meal_mode = st.segmented_control(
+            "食事の種類", list(config.MEAL_MODES), default=prev.get("meal_mode", "mix"), key="mode_sel",
+            label_visibility="collapsed", width="stretch",
+            format_func=lambda k: f":material/{MODE_ICON[k]}: {config.MEAL_MODES[k]}",
+        ) or "mix"
+        skip_breakfast = st.toggle("朝食を食べない（昼・夜の2食で1日分をとる）", value=prev.get("skip_breakfast", False),
+                                   key="skip_bf")
+        ignore_nutrition = st.toggle(
+            "栄養は目安にする（不足は費用に換算）", value=prev.get("ignore_nutrition", False), key="ignore_nut",
+            help="栄養の基準を「必ず満たす条件」から外します。エネルギー・たんぱく質の不足分を"
+                 f"{config.SHORTFALL_YEN_PER_KCAL}円/kcal で費用に換算して上乗せし、量が少なすぎる案が上位に来ないようにします。"
+                 "朝食なしなどで案が出ないときに使います。",
+        )
         budget = stepper("budget_v", "1日の予算", "wallet", BUDGET_MIN, BUDGET_MAX, BUDGET_STEP,
                          [-1000, -100], [100, 1000])
         max_prep = stepper("prep_v", "1日の準備時間の上限", "clock", PREP_MIN, PREP_MAX, PREP_STEP,
                            [-30, -15], [15, 30],
-                           help="買い物を除く、調理・片付け・外食の受け取りなどの合計の想定時間")
+                           help="自炊の買い物・調理・片付けと、外食の移動・待ち時間を合わせた1日の合計の上限")
         with st.expander("詳細設定（好み・自作レシピ）", icon=":material/settings:"):
             lam = st.slider(
                 "好みの重視度", min_value=0, max_value=200, step=10, value=prev.get("lam", 0),
                 disabled=not logged_in,
                 help="0 は費用だけで選びます。大きいほど、好き度が高い食事を選びやすくなります（ログイン時のみ）。",
+            )
+            avoid_recent = st.checkbox(
+                f"直近{config.RECENT_DAYS}日に選んだ料理を候補から外す", value=prev.get("avoid_recent", False),
+                disabled=not logged_in,
+                help="提案ページの「この案にする」で記録した料理を、昨日・一昨日の分だけ外します（ログイン時のみ）。",
             )
             use_own = st.checkbox("自分の自作レシピを候補に含める", value=prev.get("use_own", False), disabled=not logged_in)
             use_public = st.checkbox(
@@ -176,8 +197,9 @@ with right:
     kcal = config.KCAL_TABLE[SEX[sex_label]][ACTIVITY[act_label]]
     ui.preview_card(
         kcal,
-        [(SLOT_NAMES[s], round(kcal * r)) for s, r in config.SLOT_RATIO.items()],
-        round(budget / 3),
+        [(SLOT_NAMES[s] + ("（なし）" if skip_breakfast and s == "morning" else ""), round(kcal * r))
+         for s, r in (config.SLOT_RATIO_NO_BREAKFAST if skip_breakfast else config.SLOT_RATIO).items()],
+        round(budget / (2 if skip_breakfast else 3)),
         "準備時間が短いほど、自炊が選べず費用が上がります。目標エネルギーは食事摂取基準（2025年版）の推定エネルギー必要量です。",
         rich=True,
     )
@@ -196,6 +218,10 @@ if submitted:
         "use_own": bool(use_own) if user else False,
         "use_public": bool(use_public) and db_ok,
         "nickname": user,
+        "meal_mode": meal_mode,
+        "skip_breakfast": bool(skip_breakfast),
+        "ignore_nutrition": bool(ignore_nutrition),
+        "avoid_recent": bool(avoid_recent) if user else False,
     }
     if Path(__file__).resolve().parent.joinpath(PROPOSAL_PAGE).exists():
         st.switch_page(PROPOSAL_PAGE)

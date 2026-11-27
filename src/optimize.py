@@ -31,6 +31,29 @@ def apply_cooking_overhead(meals_df, utility_yen, shop_min):
     return out
 
 
+SKIP_TYPE = "なし"            # 朝食なしの行の type
+SKIP_ID = "NO_BREAKFAST"      # 朝食なしの行の meal_id / recipe_id
+MODE_TYPES = {"mix": ("外食", "自炊"), "eatout": ("外食",), "cook": ("自炊",)}
+
+
+def filter_meal_mode(meals_df, mode):
+    """食事の種類（mix=組み合わせ / eatout=外食のみ / cook=自炊のみ）で候補を絞る。"""
+    return meals_df[meals_df["type"].isin(MODE_TYPES.get(mode, MODE_TYPES["mix"]))].copy()
+
+
+def add_skip_breakfast(slot_df):
+    """朝食なし用：朝の候補を「朝食なし」（費用・準備時間・栄養すべて0）の1件だけにした表を返す。
+
+    assign_slots の後に呼ぶ。昼・夜は通常どおり。最適化の関数は3食の形のまま使える。
+    """
+    out = slot_df.copy()
+    out["can_morning"] = False
+    row = {c: 0.0 for c in out.columns if pd.api.types.is_numeric_dtype(out[c]) and out[c].dtype != bool}
+    row.update(meal_id=SKIP_ID, recipe_id=SKIP_ID, name="朝食なし", type=SKIP_TYPE, exclude_slots="",
+               can_morning=True, can_lunch=False, can_dinner=False)
+    return pd.concat([out, pd.DataFrame([row])], ignore_index=True)
+
+
 def _parse_exclude(value): #形式の統一用関数
     """exclude_slots の1セル（例: "morning,lunch"）を集合にする。空欄は空集合。"""
     # 空欄は CSV では NaN になるので、空文字と合わせて「除外なし」にする
@@ -343,7 +366,7 @@ def _plan(df, idx, keys, aux_nutrients):
 
 
 def optimize_topn(meals_df, budget_yen, max_prep_min, nutrition_target, aux_nutrients=(),
-                  likes=None, lam=0.0, n=5, min_diff=2, on_progress=None):
+                  likes=None, lam=0.0, n=5, min_diff=2, on_progress=None, shortfall=None):
     """条件を満たす1日の組み合わせを、評価額の小さい順に最大 n 案選ぶ（全探索）。
 
     評価額 = 総コスト − lam × Σ(好き度 − 3)。好き度は {recipe_id: 1〜5}。未登録は3として扱う。
@@ -356,6 +379,9 @@ def optimize_topn(meals_df, budget_yen, max_prep_min, nutrition_target, aux_nutr
       feasible: bool、plans: 案のリスト（評価額順。各案は selected, total_cost, totals, eval, like_sum）
       slot_counts: 枠ごとの候補数、reason: 解ありは None、解なしは optimize と同じ dict
     on_progress(割合) は、朝の候補を1件調べるごとに呼ぶ。
+    shortfall: {栄養の列名: (下限, 1単位あたりの円)}。渡すと、下限に足りない分を円に換算して評価額に足す
+      （ソフト制約。nutrition_target の範囲は (None, None) にして使う）。列は nutrition_target に含めること。
+      各案に shortfall_yen（不足の換算額）が付く。総コストには含めない。
     """
     df = meals_df.reset_index(drop=True)
     keys = list(nutrition_target)
@@ -370,6 +396,16 @@ def optimize_topn(meals_df, budget_yen, max_prep_min, nutrition_target, aux_nutr
         dev = df["recipe_id"].map(lambda r: likes.get(r, LIKE_NEUTRAL) - LIKE_NEUTRAL).to_numpy(float)
     else:
         dev = np.zeros(len(df))
+
+    # 不足の換算に使う栄養（keys の中の位置, 下限, 円/単位）
+    soft = [(keys.index(k), lo_, yen) for k, (lo_, yen) in (shortfall or {}).items() if k in keys]
+
+    def _penalty(t):
+        """栄養の合計の表 t（…×栄養項目）から、不足の換算額の表を返す。"""
+        out = np.zeros(t.shape[:-1])
+        for pos, lo_, yen in soft:
+            out += yen * np.maximum(0.0, lo_ - t[..., pos])
+        return out
 
     cand = {s: np.flatnonzero(df[f"can_{s}"].to_numpy(bool)) for s in SLOTS}
     slot_counts = {s: int(len(cand[s])) for s in SLOTS}
@@ -403,7 +439,7 @@ def optimize_topn(meals_df, budget_yen, max_prep_min, nutrition_target, aux_nutr
         if m == 0:
             continue
         like_sum = dev[i] + dev[cj][:, None] + dev[ck][None, :]
-        ev = np.where(mask, c - lam * like_sum, np.inf).ravel()
+        ev = np.where(mask, c - lam * like_sum + (_penalty(tot) if soft else 0.0), np.inf).ravel()
         take = min(keep, m)
         idx = np.argpartition(ev, take - 1)[:take] if take < ev.size else np.arange(ev.size)
         idx = idx[np.isfinite(ev[idx])]
@@ -426,6 +462,7 @@ def optimize_topn(meals_df, budget_yen, max_prep_min, nutrition_target, aux_nutr
             plan = _plan(df, triple, keys, aux_nutrients)
             plan["eval"] = float(ev[o])
             plan["like_sum"] = float(dev[list(triple)].sum())
+            plan["shortfall_yen"] = float(_penalty(nut[list(triple)].sum(axis=0))) if soft else 0.0
             plans.append(plan)
             chosen_sets.append(meals)
             if len(plans) == n:

@@ -41,12 +41,35 @@ ui.hero_stats("一日の提案", SUBTITLE, [
     ("予算", f"{cond['budget']:,}円", False),
     ("準備時間の上限", f"{cond['max_prep']}分", False),
 ])
+mode = cond.get("meal_mode", "mix")
+skip_breakfast = bool(cond.get("skip_breakfast", False))
+avoid_recent = bool(cond.get("avoid_recent", False))
+ignore_nutrition = bool(cond.get("ignore_nutrition", False))
+# 最適化に渡す栄養の条件。「条件にしない」ときは範囲を外す（列は残すので合計は表示できる）。
+# 表示（充足度）には元の target を使い、基準との差を見せる
+opt_target = {k: (None, None) for k in target} if ignore_nutrition else target
+slot_tol = config.SLOT_TOL_RELAXED if ignore_nutrition else config.SLOT_TOL
+# 「目安」のときは、エネルギー・たんぱく質の下限に足りない分を円に換算して評価額に足す（ソフト制約）
+shortfall = ({k: (target[k][0], config.SHORTFALL_YEN_PER_KCAL * u)
+              for k, u in config.SHORTFALL_KCAL_PER_UNIT.items() if k in target and target[k][0] is not None}
+             if ignore_nutrition else None)
+_opts = [config.MEAL_MODES.get(mode, "組み合わせ")]
+if skip_breakfast:
+    _opts.append("朝食なし（昼・夜の2食で1日分）")
+if ignore_nutrition:
+    _opts.append("栄養は目安（不足は費用に換算）")
+if avoid_recent:
+    _opts.append(f"直近{config.RECENT_DAYS}日に選んだ料理を除外")
+st.caption("食事の条件：" + "／".join(_opts))
 
 # ---------- 候補（自作レシピ・好き度）の読み込み ----------
 user = cond.get("nickname")
 recipe_rows = db.load_candidate_recipes(user, cond.get("use_own", False), cond.get("use_public", False)) \
     if (cond.get("use_own") or cond.get("use_public")) else []
 likes = db.get_likes(user) if (user and cond.get("lam", 0) > 0) else {}
+# 昨日・一昨日に「この案にする」で選んだ料理 {recipe_id: 料理名}。取得できなければ None
+today = db.today_jst()
+recent = db.get_recent_recipe_ids(user, today, config.RECENT_DAYS) if (user and avoid_recent) else {}
 
 # 同じ条件・同じ候補・同じ好き度なら、計算し直さずに前の結果を使う
 cache_key = json.dumps({
@@ -54,6 +77,7 @@ cache_key = json.dumps({
     "recipes": [[r["id"], r["cost_yen"], r["prep_min"], r["kcal"], r["protein_g"], r["fat_g"],
                  r["carb_g"], r["exclude_slots"]] for r in sorted(recipe_rows, key=lambda r: r["id"])],
     "likes": sorted(likes.items()),
+    "recent": sorted(recent or {}),
 }, sort_keys=True, default=str)
 
 cached = st.session_state.get("proposal")
@@ -70,18 +94,40 @@ else:
         meals = pd.concat([meals, ur.to_meal_rows(recipe_rows)], ignore_index=True)
         # 自作レシピ（自炊）にも同じ光熱費・買い物時間を足す（既存の行は二重に足されない）
         meals = opt.apply_cooking_overhead(meals, config.UTILITY_YEN_PER_MEAL, config.SHOP_MIN_PER_MEAL)
-    slot = opt.assign_slots(meals, kcal_target, config.SLOT_RATIO, config.SLOT_TOL)
-    res = opt.optimize_topn(slot, cond["budget"], cond["max_prep"], target, config.AUX_NUTRIENTS,
-                            likes=likes, lam=cond.get("lam", 0), on_progress=_on_progress)
+    # 外食のみ／自炊のみ の指定で候補を絞る。外食のみとの比較用に、絞る前の表も残す
+    all_meals = meals
+    meals = opt.filter_meal_mode(meals, mode)
+    # 直近に選んだ料理を外す
+    if recent:
+        meals = meals[~meals["recipe_id"].isin(list(recent))]
+        all_meals = all_meals[~all_meals["recipe_id"].isin(list(recent))]
+    ratio = config.SLOT_RATIO_NO_BREAKFAST if skip_breakfast else config.SLOT_RATIO
+
+    def _slots(df):
+        sl = opt.assign_slots(df, kcal_target, ratio, slot_tol)
+        return opt.add_skip_breakfast(sl) if skip_breakfast else sl
+
+    slot = _slots(meals)
+    res = opt.optimize_topn(slot, cond["budget"], cond["max_prep"], opt_target, config.AUX_NUTRIENTS,
+                            likes=likes, lam=cond.get("lam", 0), on_progress=_on_progress, shortfall=shortfall)
     # 外食だけで同じ条件（予算・準備時間・栄養）を満たす最小コスト。節約額の比較に使う
-    if res["feasible"]:
-        base = opt.optimize(slot[slot["type"] == "外食"], cond["budget"], cond["max_prep"], target,
-                            config.AUX_NUTRIENTS)
-        res["eatout_cost"] = float(base["total_cost"]) if base["feasible"] else None
+    # （外食のみモードでは比べる意味がないので計算しない）
+    if res["feasible"] and mode != "eatout":
+        # 「目安」のときは外食のみも同じ換算で選ぶ（量の少ない外食だけで比べないため）
+        base = opt.optimize_topn(_slots(opt.filter_meal_mode(all_meals, "eatout")), cond["budget"], cond["max_prep"],
+                                 opt_target, config.AUX_NUTRIENTS, n=1, shortfall=shortfall)
+        res["eatout_cost"] = float(base["plans"][0]["total_cost"]) if base["feasible"] else None
     bar.progress(1.0, text="完了 100%")
     bar.empty()
     st.session_state["proposal"] = {"key": cache_key, "res": res}
 
+if avoid_recent:
+    if recent is None:
+        st.warning("献立の記録を読み込めなかったため、直近の料理は除外していません（ログインと meal_history テーブルを確認してください）。")
+    elif recent:
+        st.caption(f"直近{config.RECENT_DAYS}日に選んだ料理を候補から外しました：" + "、".join(sorted(set(recent.values()))))
+    else:
+        st.caption(f"直近{config.RECENT_DAYS}日に記録した献立はありません。案の下の「この案にする」で記録できます。")
 if (cond.get("use_own") or cond.get("use_public")) and not recipe_rows:
     st.info("自作レシピを候補に含める設定ですが、読み込めたレシピはありませんでした。")
 if cond.get("lam", 0) > 0:
@@ -98,15 +144,23 @@ def show_reason(reason: dict) -> None:
     items = []
     if reason.get("slot_empty"):
         names = "・".join(ur.SLOT_LABELS[s] for s in reason["slot_empty"])
-        items.append(f"{names}の食事の候補がありません（目標エネルギーの配分に合う食事が0件）。")
+        items.append(f"{names}の食事の候補がありません（目標エネルギーの配分に合う食事が0件）。"
+                     + ("" if ignore_nutrition else "「栄養は目安にする」をオンにすると、量に関係なく候補に入ります。"))
     if reason.get("budget") is not None:
         items.append(f"予算を **{math.ceil(reason['budget']):,}円** 以上にすると、解が出ます。")
     if reason.get("prep_time") is not None:
         items.append(f"準備時間の上限を **{math.ceil(reason['prep_time'])}分** 以上にすると、解が出ます。")
     if reason.get("nutrition"):
-        items.append("栄養の基準を外せば解が出ます。栄養の基準（目標エネルギーの範囲）が条件を厳しくしています。")
+        items.append("栄養の基準を外せば解が出ます。栄養の基準（目標エネルギーの範囲）が条件を厳しくしています。"
+                     "トップの「栄養は目安にする」をオンにすると、不足を費用に換算して案を出せます。")
     if reason.get("multiple_constraints"):
         items.append("予算・準備時間・栄養のうち、複数の条件が同時に厳しいため、どれか1つを緩めるだけでは解が出ません。")
+    if mode != "mix":
+        items.append(f"食事の種類を「{config.MEAL_MODES[mode]}」に限定しています。「組み合わせ」に戻すと解が出る場合があります。")
+    if skip_breakfast:
+        items.append("朝食なしでは昼・夜の2食で1日分をとるため、1食の量が多い料理が必要です。朝食ありに戻すと解が出る場合があります。")
+    if recent:
+        items.append("直近に選んだ料理を除外しています。除外をやめると解が出る場合があります。")
     for t in items:
         st.warning(t)
 
@@ -173,6 +227,8 @@ def ui_slot(slot: str) -> str:
 
 def show_savings(plan: dict) -> None:
     """外食だけで組んだ場合との差額を、1日・1週間・1か月で示す。"""
+    if mode == "eatout":
+        return  # 外食のみモードでは比較しない
     eo = res.get("eatout_cost")
     if eo is None:
         st.info("外食だけでは、同じ条件（予算・準備時間・栄養）を満たす組み合わせがありません。")
@@ -184,14 +240,24 @@ def show_savings(plan: dict) -> None:
     c1.metric("外食のみ（1日）", f"{eo:,.0f}円")
     c2.metric(f"1週間（7日）", f"{abs(diff) * 7:,.0f}円", f"{word}", delta_color="normal" if diff >= 0 else "inverse")
     c3.metric(f"1か月（30日）", f"{abs(diff) * 30:,.0f}円", f"{word}", delta_color="normal" if diff >= 0 else "inverse")
+    cond_txt = ("同じ予算・準備時間で、栄養の不足を同じ換算で評価して組んだ外食のみ" if ignore_nutrition
+                else "同じ予算・準備時間・栄養の条件で組んだ最小コストの外食のみ")
     st.caption(
         f"この案は外食のみより1日 {abs(diff):,.0f}円{word}です。自炊の費用はロス率{config.LOSS_RATE:.0%}と光熱費{config.UTILITY_YEN_PER_MEAL}円/食、"
         f"準備時間は買い物{config.SHOP_MIN_PER_MEAL}分/食を含み（いずれも仮定）、"
-        "外食のみは同じ予算・準備時間・栄養の条件で組んだ最小コストです。毎日同じ案を続けた場合の目安です。"
+        f"比べる相手は{cond_txt}です。毎日同じ案を続けた場合の目安です。"
     )
 
 
-def show_plan(plan: dict) -> None:
+def save_today(plan: dict) -> None:
+    """この案を今日の献立として記録する（朝食なしの行は記録しない）。"""
+    meals = [{"slot": r["slot"], "recipe_id": r["recipe_id"], "name": r["name"]}
+             for _, r in plan["selected"].iterrows() if r["type"] != opt.SKIP_TYPE]
+    ok, msg = db.save_history(user, today, meals)
+    st.toast(msg, icon=":material/check_circle:" if ok else ":material/error:")
+
+
+def show_plan(plan: dict, n: int) -> None:
     sel = plan["selected"]
     totals = plan["totals"]
 
@@ -199,6 +265,17 @@ def show_plan(plan: dict) -> None:
     c1.metric("総コスト", f"{plan['total_cost']:,.0f}円")
     c2.metric("総準備時間", f"{totals['prep_min']:.0f}分")
     c3.metric("総エネルギー", f"{totals['kcal']:,.0f} kcal", help=f"目標 {kcal_target:,} kcal")
+
+    if ignore_nutrition:
+        pct = totals["kcal"] / kcal_target * 100
+        sf = plan.get("shortfall_yen", 0.0)
+        if sf > 0:
+            st.warning(f"栄養を目安として選んだ案です。エネルギーは目標の **{pct:.0f}%**（{totals['kcal']:,.0f} / "
+                       f"{kcal_target:,} kcal）で、エネルギー・たんぱく質の不足を費用に換算すると約 **{sf:,.0f}円** 分です"
+                       f"（{config.SHORTFALL_YEN_PER_KCAL}円/kcal。並び順にだけ使い、総コストには含めません）。"
+                       "下の「栄養の充足度」で不足を確認してください。")
+        else:
+            st.info(f"栄養を目安として選びましたが、この案はエネルギー・たんぱく質の下限を満たしています（目標の{pct:.0f}%）。")
 
     ui.section("この案の献立", "utensils")
     labels = [est_label(r) for _, r in sel.iterrows()]
@@ -211,6 +288,10 @@ def show_plan(plan: dict) -> None:
         st.caption(f"「栄養推定」の外食は、公式の栄養値がそろっていないため推定値を使っています：{ESTIMATED_EATOUT_NOTE}。")
     if "AI概算" in labels:
         st.caption("「AI概算」の自作レシピは、栄養をAI（Gemini）で概算した値です。実際の値と異なることがあります。")
+    if user:
+        st.button("この案にする（今日の献立として記録）", key=f"choose_{n}", icon=":material/event_available:",
+                  on_click=save_today, args=(plan,),
+                  help=f"記録した料理は、トップで「直近の料理を除外」を選ぶと、翌日から{config.RECENT_DAYS}日間候補から外れます。")
     show_savings(plan)
     show_ingredients(sel)
 
@@ -260,16 +341,25 @@ def show_plan(plan: dict) -> None:
 
 
 plans = res["plans"]
-if cond.get("lam", 0) == 0:
+if ignore_nutrition:
+    ui.result_banner("費用と栄養の不足を合わせて最もよい案", f"{plans[0]['total_cost']:,.0f}", "円 / 日",
+                     f"費用に栄養の不足の換算額（{config.SHORTFALL_YEN_PER_KCAL}円/kcal）を足した評価の順に "
+                     f"{len(plans)} 案出しました。金額は実際の費用で、順番は不足を含めた評価です。")
+elif cond.get("lam", 0) == 0:
     ui.result_banner("最安の組み合わせ", f"{plans[0]['total_cost']:,.0f}", "円 / 日",
                      f"条件を満たす案を安い順に {len(plans)} 案出しました。タブで切り替えて比べられます。")
 else:
     ui.result_banner("好みを反映した1位の案", f"{plans[0]['total_cost']:,.0f}", "円 / 日",
                      f"条件を満たす組み合わせを、好みを反映した順に {len(plans)} 案出しました。")
-tabs = st.tabs([f"案{n + 1}（{p['total_cost']:,.0f}円）" for n, p in enumerate(plans)])
-for tab, plan in zip(tabs, plans):
+def tab_label(n: int, p: dict) -> str:
+    sf = p.get("shortfall_yen", 0.0)
+    return f"案{n + 1}（{p['total_cost']:,.0f}円" + (f"・不足{sf:,.0f}円分）" if sf > 0.5 else "）")
+
+
+tabs = st.tabs([tab_label(n, p) for n, p in enumerate(plans)])
+for n_tab, (tab, plan) in enumerate(zip(tabs, plans)):
     with tab:
-        show_plan(plan)
+        show_plan(plan, n_tab)
 st.caption("案は、すでに選んだ案と2食以上違うものだけを並べています。")
 
 with st.expander("出典と仮定値"):
@@ -279,7 +369,7 @@ with st.expander("出典と仮定値"):
 seen, proposed = set(), []
 for plan in plans:
     for _, r in plan["selected"].iterrows():
-        if r["recipe_id"] not in seen:
+        if r["type"] != opt.SKIP_TYPE and r["recipe_id"] not in seen:
             seen.add(r["recipe_id"])
             proposed.append({"recipe_id": r["recipe_id"], "name": r["name"], "type": r["type"],
                              "owner": r.get("owner") if pd.notna(r.get("owner")) else None})

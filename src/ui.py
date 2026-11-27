@@ -151,6 +151,7 @@ __ICON_RULES__
 .ui-chip { font-size: .8rem; font-weight: 700; padding: .15rem .6rem; border-radius: 999px; }
 .ui-chip-cook { background: rgba(27, 175, 122, .16); color: #1baf7a; }
 .ui-chip-out { background: rgba(70, 130, 230, .16); color: #4b8ef0; }
+.ui-chip-none { background: rgba(128, 128, 128, .18); color: inherit; }
 .ui-chip-est { background: rgba(230, 160, 40, .18); color: #c98a12; margin-left: .3rem; }
 .ui-meal-name { font-size: 1.15rem; font-weight: 700; line-height: 1.4; }
 .ui-meal-meta { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .95rem; opacity: .8; }
@@ -441,11 +442,14 @@ def result_banner(label: str, value: str, unit: str, sub: str) -> None:
     )
 
 
+_CHIP_CLASS = {"自炊": "ui-chip-cook", "外食": "ui-chip-out"}
+
+
 def meal_cards(meals: list[dict]) -> None:
     """朝・昼・夜の献立カード。meals は slot, type, name, cost, prep, kcal（任意で est＝推定バッジの文字）を持つ dict のリスト。"""
     cards = "".join(
         f'<div class="ui-meal"><div class="ui-meal-top"><span class="ui-meal-slot">{html.escape(m["slot"])}</span>'
-        f'<span><span class="ui-chip {"ui-chip-cook" if m["type"] == "自炊" else "ui-chip-out"}">{html.escape(m["type"])}</span>'
+        f'<span><span class="ui-chip {_CHIP_CLASS.get(m["type"], "ui-chip-none")}">{html.escape(m["type"])}</span>'
         + (f'<span class="ui-chip ui-chip-est">{html.escape(m["est"])}</span>' if m.get("est") else "")
         + '</span></div>'
         f'<div class="ui-meal-name">{html.escape(m["name"])}</div>'

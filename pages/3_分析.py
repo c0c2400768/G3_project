@@ -88,7 +88,8 @@ with st.form("analysis_conditions"):
     shop_input = d2.slider("自炊の買い物時間（分／食）", min(config.SHOP_GRID), max(config.SHOP_GRID),
                            shop_default, 1, key="analysis_shop",
                            help=f"準備時間に足します。基準は{config.SHOP_MIN_PER_MEAL}分（仮定）")
-    st.caption(f"目標エネルギー {energy:,} kcal/日 · 朝昼夕の配分 {config.SLOT_RATIO['morning']:.0%}/{config.SLOT_RATIO['lunch']:.0%}/{config.SLOT_RATIO['dinner']:.0%}。基準はトップページで選んだ条件から引き継いでいます。")
+    st.caption(f"目標エネルギー {energy:,} kcal/日 · 朝昼夕の配分 {config.SLOT_RATIO['morning']:.0%}/{config.SLOT_RATIO['lunch']:.0%}/{config.SLOT_RATIO['dinner']:.0%}。性別・活動量はトップページの条件を引き継いでいます。"
+               "食事の種類・朝食なし・栄養を目安にする設定はこのページには反映せず、朝・昼・夜の3食を外食と自炊の組み合わせから、栄養の基準ありで分析します。")
     submitted = st.form_submit_button("確認して分析する", type="primary", width="stretch")
 
 if submitted:
@@ -134,7 +135,8 @@ except Exception as exc:
 
 try:
     best = optimize(slotted, int(budget), int(prep), nutrition, config.AUX_NUTRIENTS)
-    baseline = funcs["eatout_baseline"](slotted, int(budget), nutrition, config.AUX_NUTRIENTS)
+    # 外食のみにも同じ準備時間の上限をかける（提案ページと同じ比べ方）
+    baseline = funcs["eatout_baseline"](slotted, int(budget), nutrition, config.AUX_NUTRIENTS, max_prep_min=int(prep))
     savings = funcs["savings"](best, baseline)
 except Exception as exc:
     st.error(f"条件の計算に失敗しました: {exc}")
@@ -148,7 +150,7 @@ if best["feasible"]:
     m3.metric("食事の合計", f"{best['totals'].get('kcal', float('nan')):,.0f} kcal", f"目標 {energy:,} kcal")
     m4.metric("外食のみとの差", f"{savings['per_day']:,.0f} 円/日" if savings["feasible"] else "比較できません")
     if not baseline["feasible"]:
-        st.info("現在の予算と栄養条件を満たす外食のみの組み合わせがないため、節約額は比較できません。")
+        st.info("現在の予算・準備時間・栄養の条件を満たす外食のみの組み合わせがないため、節約額は比較できません。")
     selected = best["selected"].copy()
     selected["cost_yen"] = selected["cost_yen"].round(0).astype(int)
     selected["prep_min"] = selected["prep_min"].round(0).astype(int)
@@ -206,10 +208,11 @@ except Exception as exc:
 
 st.subheader("準備時間 × 食材ロス率")
 try:
-    grid = funcs["loss_prep_grid"](slotted, int(budget), config.PREP_GRID, config.LOSS_GRID, nutrition)
+    grid = funcs["loss_prep_grid"](slotted, int(budget), config.PREP_GRID, config.LOSS_GRID, nutrition,
+                                   same_prep_limit=True)
     if grid["saving_per_day"].notna().any():
         heatmap_value = "saving_per_day"
-        st.caption("色は外食のみと比べた1日あたりの差額です。プラスは節約、マイナスは費用増を示します。灰色は条件を満たす案がないセルです。カーソルを合わせると金額と自炊の食数を確認できます。")
+        st.caption("色は、外食のみ（同じ準備時間の上限で組んだもの）と比べた1日あたりの差額です。プラスは節約、マイナスは費用増を示します。灰色は条件を満たす案がないセルです。カーソルを合わせると金額と自炊の食数を確認できます。")
     else:
         # With no feasible eatout-only baseline, savings cannot be defined.
         # Show the best feasible daily cost so the cooked plans remain useful.
@@ -235,7 +238,8 @@ except Exception as exc:
 with st.expander("分析の前提とデータ"):
     st.markdown(
         "- 最適化は朝・昼・夜の各1食を選び、予算・準備時間・栄養条件を満たす中で費用を最小化します。\n"
-        "- 外食のみの基準は、準備時間の上限を適用せずに計算します。\n"
+        "- 「外食のみとの差」とヒートマップは、外食のみにも同じ準備時間の上限をかけて比べます（提案ページと同じ）。"
+        "損益分岐のグラフの破線だけは、準備時間の上限をかけない外食のみの費用です。\n"
         "- 自炊の費用には光熱費、準備時間には買い物時間を含みます（上のスライダーで変更可）。\n"
         "- 補助栄養項目は厚生労働省「日本人の食事摂取基準（2025年版）」の18〜29歳の値です。女性の鉄は月経の有無で推奨量が異なるため判定しません。\n"
         "- 食材ロス率、準備時間の刻み、栄養許容幅には仮定値が含まれます。\n"

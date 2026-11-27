@@ -297,3 +297,51 @@ def save_likes(nickname: str, scores: dict[str, int]) -> tuple[bool, str]:
     except Exception:
         return False, UNAVAILABLE_MSG
     return True, "保存しました。"
+
+
+# ---------- 献立の記録（meal_history テーブル。昨日・一昨日の料理を候補から外すために使う） ----------
+def today_jst():
+    """日本時間の今日の日付（Community Cloud のサーバーは UTC のため明示する）。"""
+    # タイムゾーンのデータ（tzdata）がない環境でも動くよう、UTC+9 の固定のずれで計算する（日本に夏時間はない）
+    return datetime.now(timezone(timedelta(hours=9))).date()
+
+
+def save_history(nickname: str, served_date, meals: list[dict]) -> tuple[bool, str]:
+    """その日に選んだ献立を保存する。同じ日の記録は置き換える。meals は slot, recipe_id, name の dict。"""
+    if not nickname:
+        return False, "ログインが必要です。"
+    rows = []
+    for m in meals:
+        rid, slot = str(m.get("recipe_id", "")), m.get("slot")
+        if slot not in ("morning", "lunch", "dinner") or not 1 <= len(rid) <= 50:
+            return False, "献立の値が正しくありません。"
+        rows.append({"nickname": nickname, "served_date": served_date.isoformat(), "slot": slot,
+                     "recipe_id": rid, "name": str(m.get("name", ""))[:80]})
+    if not is_available():
+        return False, UNAVAILABLE_MSG
+    try:
+        t = get_client().table("meal_history")
+        # 朝食なしで選び直したときに古い朝の記録が残らないよう、その日の分を消してから入れる
+        t.delete().eq("nickname", nickname).eq("served_date", served_date.isoformat()).execute()
+        if rows:
+            t.insert(rows).execute()
+    except Exception:
+        return False, "保存できませんでした。meal_history テーブル（sql/schema_history.sql）が作成済みか確認してください。"
+    return True, "今日の献立として記録しました。"
+
+
+def get_recent_recipe_ids(nickname: str | None, today, days: int) -> dict[str, str] | None:
+    """today の前日から days 日前までに記録した料理 {recipe_id: 料理名}。今日の分は含めない。
+
+    未ログイン・接続失敗・テーブル未作成のときは None（呼び出し側で「除外できなかった」と示す）。
+    """
+    if not nickname or not is_available():
+        return None
+    try:
+        start = (today - timedelta(days=days)).isoformat()
+        rows = (get_client().table("meal_history").select("recipe_id,name")
+                .eq("nickname", nickname).gte("served_date", start).lt("served_date", today.isoformat())
+                .execute().data)
+        return {r["recipe_id"]: r["name"] for r in rows}
+    except Exception:
+        return None
