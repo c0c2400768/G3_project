@@ -203,7 +203,8 @@ def show_plan(plan: dict) -> None:
                 st.caption(f"「{r['name']}」は{who}自作レシピです。" + ("栄養はAIの概算を含みます。" if ai else ""))
 
     # 栄養の充足度
-    ad = opt.nutrition_adequacy(totals, target, config.AUX_REFERENCE)
+    aux_reference = config.AUX_REFERENCE_BY_SEX.get(cond["sex"], config.AUX_REFERENCE)
+    ad = opt.nutrition_adequacy(totals, target, aux_reference)
     shown = ad[ad["ratio_pct"].notna()]
     fig = go.Figure(go.Bar(
         x=shown["ratio_pct"], y=[nutrient_name(k) for k in shown["nutrient"]], orientation="h",
@@ -220,6 +221,8 @@ def show_plan(plan: dict) -> None:
     ui.section("栄養の充足度", "heart")
     st.plotly_chart(fig)
     st.caption("基準は、下限（下限がなければ上限）に対する割合です。破線が100%です。")
+    if cond["sex"] == "female":
+        st.caption("女性の鉄の推奨量は月経の有無で異なるため、このページでは判定していません。")
 
     detail = pd.DataFrame({
         "栄養": [nutrient_name(k) for k in ad["nutrient"]],
